@@ -26,6 +26,10 @@ class ReportConfig:
     build_features: bool = True
     market_models: tuple[str, ...] = ("baseline_moneyline", "baseline_close")
     timezone: str = "America/New_York"
+    # Model rankings vs polls (cfb.report.rankings): a built-in rating source ("power", "elo")
+    # or "module:function"; an empty source turns the section off.
+    rankings_source: str = "power"
+    rankings_top: int = 50
 
     def __post_init__(self):
         for m in (self.primary, *self.baselines, *self.producers, *self.market_models):
@@ -34,6 +38,8 @@ class ReportConfig:
         for m, spec in self.producers.items():
             if ":" not in spec:
                 raise ValueError(f"producer for {m} must be 'module:function', got {spec!r}")
+        if self.rankings_top < 1:
+            raise ValueError(f"rankings top must be at least 1, got {self.rankings_top}")
 
     @property
     def models(self) -> list[str]:
@@ -82,6 +88,11 @@ def load_config(path: str | Path | None = None, **overrides) -> ReportConfig:
                 values[key] = run[key]
         if "market_models" in run:
             values["market_models"] = tuple(run["market_models"])
+        rk = doc.get("rankings", {})
+        if "source" in rk:
+            values["rankings_source"] = str(rk["source"])
+        if "top" in rk:
+            values["rankings_top"] = int(rk["top"])
     elif path is not None:
         raise FileNotFoundError(p)
     values.update({k: v for k, v in overrides.items() if v is not None})
