@@ -3,6 +3,7 @@
     python -m cfb.predict season-forward            # 2018-2025, refit once per season, writes data/predictions/model_v1/
     python -m cfb.predict walk-forward --seasons 2026   # refit at every cutoff (the 2026 test run)
     python -m cfb.predict matchup "Ohio State" "Michigan" [--neutral] [--cutoff 2026-11-22]
+    python -m cfb.predict --model model_v2 season-forward   # the P2 model (docs/priors.md)
 
 Training and slate features come from the stored feature files (data/features/, each game
 built at its own cutoff by `python -m cfb.features.build`). A game that is in no stored file
@@ -47,13 +48,16 @@ class Predictor:
     """Holds the stored features once, so repeated fits at many cutoffs stay fast."""
 
     def __init__(self, warehouse: Warehouse, data_dir: str | Path | None = None,
-                 groups: list[str] | None = None, features: dict[str, pd.DataFrame] | None = None):
+                 groups: list[str] | None = None, features: dict[str, pd.DataFrame] | None = None,
+                 model_id: str = C.MODEL_ID):
         """`groups` and `features` (frames as the feature build writes them) override the
-        configured groups and the stored files; tests use them."""
+        configured groups and the stored files; tests use them. `model_id` picks the
+        win-probability model (model_v1 or model_v2); the points models are the same for both."""
         self.wh = warehouse
         self.data_dir = Path(data_dir) if data_dir is not None else warehouse.root
         self.group_names = groups
-        names = list(groups or C.MODEL_GROUPS)
+        self.model_id = model_id
+        names = list(groups or C.groups_for(model_id))
         if groups is None:
             for t in ("margin", "total"):
                 names += [g for g in P.matrix_groups(t) if g not in names]
@@ -94,7 +98,7 @@ class Predictor:
         keep = margin != 0
         t, margin = t[keep], margin[keep]
         X = self.matrix_all().loc[t["game_id"].to_numpy()].reset_index(drop=True)
-        model = C.make_model(self.group_names).fit(X, (margin > 0).astype(float), margin)
+        model = C.make_model(self.group_names, self.model_id).fit(X, (margin > 0).astype(float), margin)
         # Points models (phase 2): every completed game from P.TRAIN_START, ties included.
         tp = train[train["season"] >= P.TRAIN_START]
         Xp = self.matrix_all().loc[tp["game_id"].to_numpy()].reset_index(drop=True)
@@ -157,9 +161,9 @@ def _fmt(x) -> str:
 
 
 def run(warehouse: Warehouse, seasons, refit: str, games: pd.DataFrame | None = None,
-        progress=None) -> pd.DataFrame:
-    pr = Predictor(warehouse)
-    return walk_forward(warehouse, pr.fit, pr.predict, C.MODEL_ID, seasons=seasons, games=games,
+        progress=None, model_id: str = C.MODEL_ID) -> pd.DataFrame:
+    pr = Predictor(warehouse, model_id=model_id)
+    return walk_forward(warehouse, pr.fit, pr.predict, model_id, seasons=seasons, games=games,
                         refit=refit, progress=progress)
 
 
@@ -169,7 +173,14 @@ def produce(warehouse: Warehouse, games: pd.DataFrame) -> pd.DataFrame:
     return run(warehouse, seasons, "cutoff", games=games)
 
 
-def matchup(warehouse: Warehouse, home: str, away: str, neutral: bool = False, cutoff=None) -> dict:
+def produce_v2(warehouse: Warehouse, games: pd.DataFrame) -> pd.DataFrame:
+    """cfb.run_week producer for model_v2 (player-based priors; docs/priors.md)."""
+    seasons = sorted(games["season"].unique().tolist())
+    return run(warehouse, seasons, "cutoff", games=games, model_id=C.MODEL_V2_ID)
+
+
+def matchup(warehouse: Warehouse, home: str, away: str, neutral: bool = False, cutoff=None,
+            model_id: str = C.MODEL_ID) -> dict:
     """On-demand prediction for two teams (names or ids) as of `cutoff` (default: now)."""
     cutoff = as_utc(cutoff) if cutoff is not None else pd.Timestamp.now(tz="UTC")
     view = warehouse.view(cutoff)
@@ -191,17 +202,18 @@ def matchup(warehouse: Warehouse, home: str, away: str, neutral: bool = False, c
         "home_fbs": bool(fbs.get(h, False)), "away_fbs": bool(fbs.get(a, False)),
         "home_team": name.get(h, str(home)), "away_team": name.get(a, str(away)), "start_time_tbd": False,
     }])
-    pr = Predictor(warehouse)
+    pr = Predictor(warehouse, model_id=model_id)
     from .eval.splits import visible_results
     fitted = pr.fit(view, visible_results(warehouse, cutoff))
     out = pr.predict(fitted, view, game).iloc[0]
-    return {"home": name.get(h), "away": name.get(a), "neutral": bool(neutral), "cutoff_utc": str(cutoff),
+    return {"model_id": model_id, "home": name.get(h), "away": name.get(a), "neutral": bool(neutral), "cutoff_utc": str(cutoff),
             "p_home_win": float(out["p_home_win"]), "reasons": json.loads(out["reasons"])}
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cfb.predict", description=__doc__.split("\n")[0])
     ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--model", default=C.MODEL_ID, choices=sorted(C.MODELS))
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("season-forward", help="2018-2025, refit once per season")
     s.add_argument("--seasons", default="2018-2025")
@@ -215,7 +227,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     wh = Warehouse(args.data_dir)
     if args.cmd == "matchup":
-        print(json.dumps(matchup(wh, args.home, args.away, args.neutral, args.cutoff), indent=2))
+        print(json.dumps(matchup(wh, args.home, args.away, args.neutral, args.cutoff, args.model), indent=2))
         return 0
     from .features.build import parse_seasons
     seasons = parse_seasons(args.seasons)
@@ -223,10 +235,10 @@ def main(argv=None) -> int:
     def prog(i, n):
         if i % 25 == 0 or i == n:
             print(f"  {i}/{n} cutoffs", flush=True)
-    preds = run(wh, seasons, refit, progress=prog)
+    preds = run(wh, seasons, refit, progress=prog, model_id=args.model)
     # keep other seasons' files: write only the seasons predicted here
     paths = write_weekly(preds, args.data_dir, replace=False)
-    print(f"{len(preds)} predictions for {C.MODEL_ID}, {len(paths)} files")
+    print(f"{len(preds)} predictions for {args.model}, {len(paths)} files")
     return 0
 
 
