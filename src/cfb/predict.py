@@ -2,7 +2,7 @@
 
     python -m cfb.predict season-forward            # 2018-2025, refit once per season, writes data/predictions/model_v1/
     python -m cfb.predict walk-forward --seasons 2026   # refit at every cutoff (the 2026 test run)
-    python -m cfb.predict matchup "Ohio State" "Michigan" [--neutral] [--cutoff 2026-11-22]
+    python -m cfb.predict matchup "Ohio State" "Michigan" [--neutral] [--cutoff 2026-11-22] [--qb-out "Michigan"]
 
 Training and slate features come from the stored feature files (data/features/, each game
 built at its own cutoff by `python -m cfb.features.build`). A game that is in no stored file
@@ -169,8 +169,10 @@ def produce(warehouse: Warehouse, games: pd.DataFrame) -> pd.DataFrame:
     return run(warehouse, seasons, "cutoff", games=games)
 
 
-def matchup(warehouse: Warehouse, home: str, away: str, neutral: bool = False, cutoff=None) -> dict:
-    """On-demand prediction for two teams (names or ids) as of `cutoff` (default: now)."""
+def matchup(warehouse: Warehouse, home: str, away: str, neutral: bool = False, cutoff=None,
+            qb_out: dict | None = None) -> dict:
+    """On-demand prediction for two teams (names or ids) as of `cutoff` (default: now).
+    `qb_out`: {team: "out" | replacement name}, the manual override of cfb.model.qb_out."""
     cutoff = as_utc(cutoff) if cutoff is not None else pd.Timestamp.now(tz="UTC")
     view = warehouse.view(cutoff)
     teams = view.table("teams", seasons=view.season)
@@ -194,9 +196,16 @@ def matchup(warehouse: Warehouse, home: str, away: str, neutral: bool = False, c
     pr = Predictor(warehouse)
     from .eval.splits import visible_results
     fitted = pr.fit(view, visible_results(warehouse, cutoff))
-    out = pr.predict(fitted, view, game).iloc[0]
+    pred = pr.predict(fitted, view, game)
+    adj = {}
+    if qb_out:
+        from .model import qb_out as QO
+        adj = QO.resolve(view, qb_out)
+        pred = QO.apply(pred, game, adj, logit_per_point=float(getattr(fitted.model, "calib", (0, QO.LOGIT_PER_POINT))[1]))
+    out = pred.iloc[0]
     return {"home": name.get(h), "away": name.get(a), "neutral": bool(neutral), "cutoff_utc": str(cutoff),
-            "p_home_win": float(out["p_home_win"]), "reasons": json.loads(out["reasons"])}
+            "p_home_win": float(out["p_home_win"]), "reasons": json.loads(out["reasons"]),
+            **({"qb_out": list(adj.values())} if adj else {})}
 
 
 def main(argv=None) -> int:
@@ -212,10 +221,13 @@ def main(argv=None) -> int:
     m.add_argument("away")
     m.add_argument("--neutral", action="store_true")
     m.add_argument("--cutoff", default=None)
+    m.add_argument("--qb-out", action="append", default=[], metavar="TEAM[=REPLACEMENT]",
+                   help="manual override: the team's expected starter is out (repeatable)")
     args = ap.parse_args(argv)
     wh = Warehouse(args.data_dir)
     if args.cmd == "matchup":
-        print(json.dumps(matchup(wh, args.home, args.away, args.neutral, args.cutoff), indent=2))
+        qbo = dict((x.split("=", 1) + ["out"])[:2] for x in args.qb_out)
+        print(json.dumps(matchup(wh, args.home, args.away, args.neutral, args.cutoff, qbo), indent=2, default=str))
         return 0
     from .features.build import parse_seasons
     seasons = parse_seasons(args.seasons)

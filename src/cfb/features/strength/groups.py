@@ -465,4 +465,6 @@ class Polls(FeatureGroup):
         return _out(keys, vals)
 
 
-GROUPS = [Power(), Prior(), Elo(), Schedule(), Luck(), SpecialTeams(), Form(), Polls()]
+from .qb import QBQuality  # noqa: E402
+
+GROUPS = [Power(), Prior(), Elo(), Schedule(), Luck(), SpecialTeams(), Form(), Polls(), QBQuality()]

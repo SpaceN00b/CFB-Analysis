@@ -209,6 +209,23 @@ def produce_predictions(warehouse: Warehouse, slate: Slate, config: ReportConfig
     return out, notes
 
 
+def apply_qb_out(warehouse: Warehouse, slate: Slate, config: ReportConfig,
+                 frame: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    """Manual QB-out override ([qb_out] in the config) on the target week's games of the
+    primary model. Stored predictions stay the model's own."""
+    from .model import qb_out as QO
+    view = warehouse.view(slate.last_cutoff)
+    adj = QO.resolve(view, config.qb_out)
+    week = frame["game_id"].isin(slate.games["game_id"])
+    sched = warehouse.schedule([slate.season])
+    frame = pd.concat([frame[~week], QO.apply(frame[week], sched, adj)]).loc[frame.index]
+    parts = [f"{a['starter_name']} out, {a['replacement_name']} starts ({a['points']:+.1f} pts)"
+             for a in adj.values() if "starter_name" in a]
+    log(f"qb_out: {'; '.join(parts) or 'no change'}")
+    return frame, ("Manual QB-out override applied to " + config.primary + ": " + "; ".join(parts) + "."
+                   if parts else "Manual QB-out override set, but no expected starter was found.")
+
+
 def lines_time(data_dir: Path, season: int) -> pd.Timestamp | None:
     paths = list((data_dir / "raw" / "lines").glob(f"{season}_*.json.gz"))
     if not paths:
@@ -325,6 +342,9 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
     log("step 5/7 predict")
     predictions, pnotes = produce_predictions(warehouse, slate, config, data_dir, write=write_predictions)
     notes += pnotes
+    if config.qb_out and config.primary in predictions:
+        predictions[config.primary], qnote = apply_qb_out(warehouse, slate, config, predictions[config.primary])
+        notes.append(qnote)
     if config.primary.startswith("baseline_"):
         notes.insert(0, f"The report's model is the {config.primary} baseline until the trained model is "
                         "switched on in dashboard/config.toml.")

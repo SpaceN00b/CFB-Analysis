@@ -38,3 +38,13 @@ timezone = "America/New_York"
 # returning team_id + rating from an AsOfView (see cfb/report/rankings.py). "" turns it off.
 source = "power"
 top = 50
+
+[qb_out]
+# Manual "QB out" override for the target week (cfb.model.qb_out; docs/qb.md). The model
+# cannot see injury news: name a team whose expected starter (last game's leading passer)
+# will not play, as "out" (the next QB starts) or with the replacement's name. The primary
+# model's margin moves by -1.2 + 24.2 x (replacement minus starter quality), between -6
+# and 0 points, and its win probability with it. Stored predictions are not changed.
+# Clear the entries after the week. Examples:
+# "Texas" = "out"
+# "Ohio State" = "Julian Sayin"
