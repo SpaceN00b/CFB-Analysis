@@ -111,7 +111,9 @@ Special handling:
   are later than a week-start cutoff. It is for the market group and baselines only.
 - `weather`: observed values for played games, forecasts for upcoming ones. Visible for the
   slate by design: training uses observed weather, live runs use forecasts.
-- `game_pregame`: point-in-time for FBS vs FBS. Unreliable for FBS vs FCS from 2022.
+- `game_pregame`: point-in-time for FBS vs FBS. Unreliable for FBS vs FCS from 2022. When
+  a team plays twice inside one calendar week (week 0 is filed under week 1), the Elo
+  before its second game already includes the first.
 - `transfer_portal`: `destination` is filled in later at the source. It is blanked until
   the portal season has started.
 - `coach_tenures`: a tenure appears once the hire date has passed (or, without one, once
