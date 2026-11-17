@@ -28,6 +28,7 @@ from .core.timeutil import as_utc
 from .eval.splits import walk_forward, write_weekly
 from .features.base import discover_groups
 from .model import config as C
+from .model import points_config as P
 from .model.matrix import game_matrix, groups_by_name, live_features, stored_features
 
 N_REASONS = 5
@@ -38,6 +39,8 @@ class Fitted:
     model: object
     n_train: int
     cutoff: pd.Timestamp
+    margin_model: object = None
+    total_model: object = None
 
 
 class Predictor:
@@ -50,7 +53,11 @@ class Predictor:
         self.wh = warehouse
         self.data_dir = Path(data_dir) if data_dir is not None else warehouse.root
         self.group_names = groups
-        self.groups = groups_by_name(groups or C.MODEL_GROUPS)
+        names = list(groups or C.MODEL_GROUPS)
+        if groups is None:
+            for t in ("margin", "total"):
+                names += [g for g in P.matrix_groups(t) if g not in names]
+        self.groups = groups_by_name(names)
         self._stored = features
         self._matrix = None
         self._descr = {c.name: c.description for g in discover_groups() for c in g.columns}
@@ -88,7 +95,14 @@ class Predictor:
         t, margin = t[keep], margin[keep]
         X = self.matrix_all().loc[t["game_id"].to_numpy()].reset_index(drop=True)
         model = C.make_model(self.group_names).fit(X, (margin > 0).astype(float), margin)
-        return Fitted(model, len(X), view.cutoff)
+        # Points models (phase 2): every completed game from P.TRAIN_START, ties included.
+        tp = train[train["season"] >= P.TRAIN_START]
+        Xp = self.matrix_all().loc[tp["game_id"].to_numpy()].reset_index(drop=True)
+        hp, ap = tp["home_points"].to_numpy(dtype="float64"), tp["away_points"].to_numpy(dtype="float64")
+        points = {}
+        for target, y in (("margin", hp - ap), ("total", hp + ap)):
+            points[target] = P.make_model(target, self.group_names).fit(Xp, P.clip_target(target, y))
+        return Fitted(model, len(X), view.cutoff, points["margin"], points["total"])
 
     def predict(self, fitted: Fitted, view, slate: pd.DataFrame) -> pd.DataFrame:
         X = self.matrix_for(view, slate)
@@ -96,8 +110,12 @@ class Predictor:
         contrib = fitted.model.contributions(X)
         reasons = [self._reasons(contrib.iloc[i], X.iloc[i]) for i in range(len(X))]
         out = pd.DataFrame({"game_id": X["game_id"].to_numpy(), "p_home_win": p, "reasons": reasons})
-        # pred_margin stays empty in phase 1: the margin fit is an intermediate step,
-        # not a validated spread prediction.
+        # Phase 2: spread and total from the separately selected points models
+        # (cfb.model.points_config). p_home_win stays the frozen model_v1.
+        if fitted.margin_model is not None:
+            out["pred_margin"] = fitted.margin_model.predict(X)
+        if fitted.total_model is not None:
+            out["pred_total"] = np.maximum(fitted.total_model.predict(X), 0.0)
         return out
 
     def _reasons(self, contrib: pd.Series, row: pd.Series) -> str:
@@ -108,7 +126,7 @@ class Predictor:
                 items.append({"text": f"No data yet for {name[8:]}", "feature": name,
                               "effect": round(float(contrib[name]), 4)})
                 continue
-            base = name[2:] if name[:2] in ("d_", "h_", "a_") else name
+            base = name[2:] if name[:2] in ("d_", "h_", "a_", "s_") else name
             descr = _label(self._descr.get(base, base))
             if name.startswith("d_"):
                 h, a = row.get(f"h_{base}"), row.get(f"a_{base}")

@@ -1,7 +1,8 @@
 """Matrix builder: one row per game from the feature groups.
 
-Team-level groups (keys game_id, team_id) become three columns per feature:
-`h_<col>` (home team's value), `a_<col>` (away team's) and `d_<col>` (home minus away).
+Team-level groups (keys game_id, team_id) become four columns per feature:
+`h_<col>` (home team's value), `a_<col>` (away team's), `d_<col>` (home minus away) and
+`s_<col>` (home plus away, for the game total).
 Game-level groups keep their column names. Base columns from the schedule are added:
 `site` (1 at a true home game, 0 at a neutral site), `home_fbs`, `away_fbs`, `fcs_game`.
 
@@ -68,6 +69,7 @@ def _team_wide(frame: pd.DataFrame, games: pd.DataFrame, cols: list[str]) -> pd.
         parts[f"h_{c}"] = hv[:, j]
         parts[f"a_{c}"] = av[:, j]
         parts[f"d_{c}"] = hv[:, j] - av[:, j]
+        parts[f"s_{c}"] = hv[:, j] + av[:, j]
     return pd.DataFrame(parts, index=games.index)
 
 
@@ -93,7 +95,7 @@ def game_matrix(games: pd.DataFrame, features: dict[str, pd.DataFrame],
 
 
 def feature_columns(groups: Iterable[FeatureGroup], forms: tuple[str, ...] = ("d",)) -> list[str]:
-    """Matrix column names of the groups: team columns in the requested forms (h, a, d),
+    """Matrix column names of the groups: team columns in the requested forms (h, a, d, s),
     game columns as they are."""
     out = []
     for g in groups:

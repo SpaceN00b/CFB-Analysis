@@ -11,6 +11,11 @@
         --common-with keeps only games every named model also predicted.
         --compare runs a paired bootstrap against each named model on common games.
 
+    python -m cfb.eval points <model_id> [--seasons 2018-2025] [--scope fbs_vs_fbs|all] [--no-write]
+        Scores pred_margin and pred_total of stored predictions against the results and the
+        closing spread and total (MAE, RMSE, bias, hit rate against the line); writes
+        data/eval/<model_id>_points.json.
+
 The default scoring seasons stop at 2025: 2026 is the test season and is scored only when
 asked for (--seasons 2026).
 """
@@ -119,6 +124,35 @@ def cmd_score(args) -> int:
     return 0
 
 
+def cmd_points(args) -> int:
+    import json
+    from pathlib import Path
+
+    from ..features.market import MarketLines
+    from .points import evaluate_points, format_points
+
+    wh = Warehouse(args.data_dir)
+    seasons = parse_seasons(args.seasons) or list(DEFAULT_SEASONS)
+    pred = _restrict(read_predictions(args.data_dir, args.model_id), seasons)
+    pred = pred[pred["pred_margin"].notna() | pred["pred_total"].notna()]
+    if pred.empty:
+        print(f"no spread or total predictions for {args.model_id} in seasons {seasons}", file=sys.stderr)
+        return 1
+    games = wh.game_index[wh.game_index["game_id"].isin(pred["game_id"])]
+    # Closing lines are read at a view after the last game: a benchmark, not a model input.
+    view = wh.view(games["start_time_utc"].max() + pd.Timedelta(days=1))
+    lines = MarketLines().build(view, games[["game_id"]])
+    doc = evaluate_points(pred, wh.outcomes(), lines, args.model_id, args.scope)
+    doc["seasons"] = [int(s) for s in seasons]
+    if not args.no_write:
+        path = Path(args.data_dir) / "eval" / f"{args.model_id}_points.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(doc, indent=1), encoding="utf-8")
+        print(path)
+    print(format_points(doc))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cfb.eval", description=__doc__.split("\n")[0])
     ap.add_argument("--data-dir", default="data")
@@ -135,10 +169,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--cluster-weeks", action="store_true", help="bootstrap whole weeks instead of games")
     s.add_argument("--n-boot", type=int, default=2000)
     s.add_argument("--no-write", action="store_true")
-    for p in (b, s):
+    pt = sub.add_parser("points", help="score spread and total predictions against the closing lines")
+    pt.add_argument("model_id")
+    pt.add_argument("--seasons", help="default 2018-2025; pass 2026 to score the test season")
+    pt.add_argument("--scope", default="fbs_vs_fbs", choices=("fbs_vs_fbs", "all"))
+    pt.add_argument("--no-write", action="store_true")
+    for p in (b, s, pt):
         p.add_argument("--data-dir", default=argparse.SUPPRESS)
     args = ap.parse_args(argv)
-    return cmd_baselines(args) if args.cmd == "baselines" else cmd_score(args)
+    return {"baselines": cmd_baselines, "score": cmd_score, "points": cmd_points}[args.cmd](args)
 
 
 if __name__ == "__main__":
