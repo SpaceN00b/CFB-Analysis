@@ -46,6 +46,37 @@ API's (camelCase). Ingest adds `season`, and `season_type` and `week` where the 
 `rankings` and `games_players` tables are reshaped from nested responses; the raw files keep
 the original nesting. `games_players.stat` is text ("15/22", "5.3").
 
+## Player-level datasets (P1, 2026-11-17)
+
+| Name | Endpoint | One row per | Key columns | Access policy | First season with rows |
+| --- | --- | --- | --- | --- | --- |
+| `roster` | `/roster?year=` | season, player (FBS and FCS) | `id` (athlete), `team`, `position`, `year` (class year), `recruitIds` | PRESEASON | 2014 |
+| `player_usage` | `/player/usage?year=` | season, player | `id`, `team`, `usage.*` | SEASON_FINAL (prior seasons only) | 2014 |
+| `ppa_players_season` | `/ppa/players/season?year=` | season, player | `id`, `team`, `averagePPA.*`, `totalPPA.*` | SEASON_FINAL | 2013 (lag year for the 2014 prior) |
+| `recruiting_players` | `/recruiting/players?year=` | class year, high-school recruit | `id` (recruit), `athleteId` (55% filled), `stars`, `rating` | PRESEASON (season = class year) | class of 2010 |
+| `recruiting_players_juco` | same, `classification=JUCO` | class year, junior-college recruit | as above | PRESEASON | class of 2010 |
+| `draft_picks` | `/draft/picks?year=` | draft year, pick | `collegeAthleteId`, `collegeTeam`, `round`, `overall` | PRESEASON (season = draft year; held in April) | 2014 |
+| `ppa_players_games` | `/ppa/players/games?year=&week=` | week, player, opponent | `id`, `team`, `opponent`, `averagePPA.all/pass/rush` | WEEKLY, rows known when the calendar week ends | 2014 |
+| `player_success_games` | `/stats/player/success/game?year=&week=` | game, passer or rusher | `gameId`, `id`, `passing.plays`, `rushing.plays`, `*.successes` | GAME | 2014 |
+| `passing_players_games` | `/passing/players/games?year=&week=` | game, FBS passer | `gameId`, `playerId`, `cpoe`, `ppa`, `averageDepthOfTarget` | GAME | 2025 (empty 2014-2024) |
+
+Notes:
+
+- Athlete ids are strings and match across `roster.id`, the player game tables, `ppa_players_season.id`,
+  `games_players.athleteId` and `recruiting_players.athleteId`. A recruit without `athleteId`
+  links through `roster.recruitIds` (recruit `id`).
+- `roster` is the season's final roster as of the pull; it is used as if known before the
+  season (late additions and position changes are not dated). It holds FCS rosters too: about
+  16,000 to 19,000 rows a season through 2021, 22,000 to 31,500 from 2022.
+- `/ppa/players/games` has no `gameId`. Join it to `player_success_games` on season, season
+  type, week, athlete, team and opponent (97.5% of passer rows match in 2014-2015; a few
+  hundred duplicate keys exist, drop them). Because rows are dated by week end, a bowl's player
+  PPA is visible only after the last bowl.
+- `player_success_games` lists passers and rushers only (no receivers). `passing.plays`
+  includes sacks and scrambles counted as dropbacks by CFBD (not checked play by play).
+- `/stats/player/success/game` answers about one request per 12 seconds and refuses concurrent
+  requests (HTTP 429 "Too many concurrent requests for this endpoint"); pull it in one process.
+
 ## When a row is known
 
 Feature code must respect these. The cutoff rule is in the build plan.
