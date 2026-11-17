@@ -30,6 +30,9 @@ class ReportConfig:
     # or "module:function"; an empty source turns the section off.
     rankings_source: str = "power"
     rankings_top: int = 50
+    # Manual "QB out" override for the target week (cfb.model.qb_out): team -> "out" or the
+    # replacement's name. Applied to the primary model's report, not to stored predictions.
+    qb_out: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         for m in (self.primary, *self.baselines, *self.producers, *self.market_models):
@@ -88,6 +91,7 @@ def load_config(path: str | Path | None = None, **overrides) -> ReportConfig:
                 values[key] = run[key]
         if "market_models" in run:
             values["market_models"] = tuple(run["market_models"])
+        values["qb_out"] = {str(k): str(v) for k, v in doc.get("qb_out", {}).items()}
         rk = doc.get("rankings", {})
         if "source" in rk:
             values["rankings_source"] = str(rk["source"])

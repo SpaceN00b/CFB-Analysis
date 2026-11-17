@@ -135,7 +135,7 @@ def _by_name(name):
 def test_groups_are_registered():
     names = {g.name for g in GROUPS}
     assert names == {"str_power", "str_prior", "str_elo", "str_schedule", "str_luck", "str_special_teams",
-                     "str_form", "str_polls", "str_power2", "str_prior2", "str_program"}
+                     "str_form", "str_polls", "str_power2", "str_prior2", "str_program", "str_qb"}
     assert all(c.name.startswith("str_") for g in GROUPS for c in g.columns)
 
 
