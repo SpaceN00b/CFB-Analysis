@@ -51,18 +51,20 @@ class PowerState:
         return out
 
 
-def power_state(view, params: P.PointsParams = POWER) -> PowerState:
+def power_state(view, params: P.PointsParams = POWER, version: int = 1) -> PowerState:
+    """Power ratings at the view's cutoff. `version` 2 takes the player-based preseason
+    projection (prior.COMPONENTS_V2) as the prior; everything else is the same."""
     season = view.season
     teams = view.table("teams", seasons=season)
     idx = TeamIndex.from_teams(teams)
     tg = view.table("team_game", columns=P.TG_COLUMNS, seasons=season)
     obs = P.observations(tg)
-    comp = PR.components(view, season)
+    comp = PR.components(view, season) if version == 1 else PR.components_v2(view, season)
     prev, _ = PR.previous_final(view, season)
     off0 = def0 = None
     mu0, hfa0 = None, 0.0
     if prev is not None:
-        o, d = PR.projection(comp.reindex(idx.fbs_ids))
+        o, d = PR.projection(comp.reindex(idx.fbs_ids), version)
         off0 = np.append(o, comp["pool_off"].iloc[0] if len(comp) else 0.0)
         def0 = np.append(d, comp["pool_def"].iloc[0] if len(comp) else 0.0)
         mu0, hfa0 = prev.mu, prev.hfa

@@ -17,6 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from . import players as PL
 from . import points as P
 from .common import by_name, zscore
 from .units import TeamIndex
@@ -28,6 +29,28 @@ COEF_OFF = {"one": 0.074, "prev_off": 0.369, "prev_def": -0.015, "sp_off_c": 0.0
             "tal_z": 0.709, "rec_z": 1.220, "ret": 4.554}
 COEF_DEF = {"one": -0.125, "prev_off": 0.084, "prev_def": 0.309, "sp_off_c": -0.163, "sp_def_c": 0.165,
             "tal_z": 1.260, "rec_z": -2.586, "ret": -3.074}
+
+
+# Version 2 (model_v2, P2): the components above plus the player components of
+# `players.py`, centred within the season. Fitted by scripts/strength_fit_prior.py --version 2
+# on 2015-2025 (never 2026). Leave-one-season-out R^2: offense 0.457, defense 0.503
+# (version 1: 0.436, 0.472).
+COMPONENTS_V2 = COMPONENTS + [f"{c}_c" for c in PL.PLAYER_COLUMNS]
+COEF_OFF_V2 = {
+    "one": 0.0594, "prev_off": 0.2862, "prev_def": -0.0061, "sp_off_c": 0.015, "sp_def_c": -0.0782,
+    "tal_z": 0.1748, "rec_z": 1.4219, "ret": 0.7565, "pl_ret_ppa_c": 1.4239, "pl_in_ppa_c": 1.0545,
+    "pl_lost_ppa_c": -0.1293, "pl_ret_def_tkl_c": 1.7479, "pl_ret_def_hav_c": 0.8959,
+    "pl_in_def_tkl_c": 0.7082, "pl_in_def_hav_c": -0.0313, "pl_portal_in3_c": 0.0371,
+    "pl_portal_out3_c": 0.0441, "pl_portal_in4_c": 0.0588, "pl_portal_out4_c": 0.0924,
+}
+COEF_DEF_V2 = {
+    "one": -0.108, "prev_off": 0.0717, "prev_def": 0.3011, "sp_off_c": -0.2075, "sp_def_c": 0.2086,
+    "tal_z": 1.5105, "rec_z": -2.2691, "ret": -1.055, "pl_ret_ppa_c": 0.1257,
+    "pl_in_ppa_c": -0.2973, "pl_lost_ppa_c": 0.588, "pl_ret_def_tkl_c": -4.789,
+    "pl_ret_def_hav_c": -4.2754, "pl_in_def_tkl_c": -5.9527, "pl_in_def_hav_c": -0.202,
+    "pl_portal_in3_c": 0.0235, "pl_portal_out3_c": -0.0105, "pl_portal_in4_c": -0.1783,
+    "pl_portal_out4_c": 0.0096,
+}
 
 
 def _table(view, name, seasons, prior=False):
@@ -102,6 +125,19 @@ def components(view, season: int | None = None) -> pd.DataFrame:
     return out
 
 
+def components_v2(view, season: int | None = None, asof=None) -> pd.DataFrame:
+    """`components` plus the player components (raw and centred `<name>_c`). `asof`: see
+    players.components."""
+    season = view.season if season is None else season
+    comp = components(view, season)
+    pl = PL.components(view, season, comp.index.to_numpy(), asof=asof)
+    comp = comp.join(pl)
+    cen = PL.centred(pl)
+    for c in PL.PLAYER_COLUMNS:
+        comp[f"{c}_c"] = cen[c]
+    return comp
+
+
 def portal(view, season: int, ids: np.ndarray) -> pd.DataFrame:
     """Transfers of the season visible at the cutoff (2021 on): counts and star-weighted net.
     Unrated transfers count as two stars. Empty before the data starts."""
@@ -124,12 +160,14 @@ def portal(view, season: int, ids: np.ndarray) -> pd.DataFrame:
     return out
 
 
-def projection(comp: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+def projection(comp: pd.DataFrame, version: int = 1) -> tuple[np.ndarray, np.ndarray]:
     """Projected (off, def) deviations in points from the components; NaN components count as 0.
-    A team with no previous FBS season starts from last season's pooled lower-division value."""
-    x = comp[COMPONENTS].fillna(0.0)
-    off = COEF_OFF["one"] + sum(COEF_OFF[c] * x[c] for c in COMPONENTS)
-    deff = COEF_DEF["one"] + sum(COEF_DEF[c] * x[c] for c in COMPONENTS)
+    A team with no previous FBS season starts from last season's pooled lower-division value.
+    `version` 2 uses COMPONENTS_V2 (needs `components_v2`)."""
+    names, co, cd = (COMPONENTS, COEF_OFF, COEF_DEF) if version == 1 else (COMPONENTS_V2, COEF_OFF_V2, COEF_DEF_V2)
+    x = comp.reindex(columns=names).fillna(0.0)
+    off = co["one"] + sum(co[c] * x[c] for c in names)
+    deff = cd["one"] + sum(cd[c] * x[c] for c in names)
     new = comp["prev_off"].isna() & comp["pool_off"].notna()
     off = off.where(~new, comp["pool_off"])
     deff = deff.where(~new, comp["pool_def"])

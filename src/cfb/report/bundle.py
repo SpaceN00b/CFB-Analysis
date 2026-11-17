@@ -35,6 +35,7 @@ TOP_REASONS = 3
 
 MODEL_LABELS = {
     "model_v1": "Model v1",
+    "model_v2": "Model v2 (player priors)",
     "baseline_close": "Closing spread",
     "baseline_moneyline": "Moneyline (no vig)",
     "baseline_elo": "CFBD Elo + home",
