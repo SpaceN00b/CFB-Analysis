@@ -190,6 +190,7 @@ POLICIES: dict[str, TablePolicy] = {
     "stats_season_advanced": TablePolicy(SEASON_FINAL, season_col="season"),
     "coaches": TablePolicy(SEASON_FINAL, season_col="season"),
     "player_usage": TablePolicy(SEASON_FINAL, season_col="season", keys=PLAYER_KEYS),
+    "ppa_players_season": TablePolicy(SEASON_FINAL, season_col="season", keys=PLAYER_KEYS),
     # ---- raw: dated ----------------------------------------------------------------
     "transfer_portal": TablePolicy(DATED, date_col="transferDate", season_col="season",
                                    transform=_mask_portal_destination),

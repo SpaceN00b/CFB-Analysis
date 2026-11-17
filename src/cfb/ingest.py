@@ -137,6 +137,8 @@ DATASETS = [
     Dataset("recruiting_players_juco", "/recruiting/players", "year", {"classification": "JUCO"}, lag=4),
     # Draft year Y is held in April of Y, before season Y.
     Dataset("draft_picks", "/draft/picks", "year"),
+    # Season totals per player; season Y is a prior for Y+1, so one lag year (2013 for 2014).
+    Dataset("ppa_players_season", "/ppa/players/season", "year", lag=1),
     # Per player and game. /ppa/players/games has no gameId (joined in core).
     Dataset("ppa_players_games", "/ppa/players/games", "week"),
     Dataset("player_success_games", "/stats/player/success/game", "week"),
