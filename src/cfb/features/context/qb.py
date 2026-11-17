@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ..base import FeatureColumn, FeatureGroup
+from ._util import empty_output
 
 MIN_ATTEMPTS = 10
 SOURCES = ("games_players", "schedule")
@@ -49,6 +50,8 @@ class QBContinuity(FeatureGroup):
     ]
 
     def build(self, view, games: pd.DataFrame) -> pd.DataFrame:
+        if not view.has("games_players"):  # absent from this warehouse: unknown
+            return empty_output(self, games)
         p = passing_by_game(view)
         ids = pd.Series(games["home_id"].tolist() + games["away_id"].tolist())
         gid = games["game_id"].tolist() * 2

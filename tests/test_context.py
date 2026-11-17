@@ -174,6 +174,14 @@ def test_context_groups_on_an_unscheduled_matchup(extended):
         assert len(out) == (2 if group.level == "team" else 1), group.name
 
 
+def test_groups_without_their_table_return_empty_values(synthetic):
+    """The plain synthetic store has no portal, box score or weather table; the driver must
+    still run, and the values are unknown rather than zero."""
+    for group in (Portal(), QBContinuity(), Weather()):
+        out = run_group(group, synthetic)
+        assert len(out) and out[group.column_names].isna().all().all(), group.name
+
+
 # ---- real data (skipped in CI) --------------------------------------------------------
 
 @pytest.mark.parametrize("group", GROUPS, ids=lambda g: g.name)

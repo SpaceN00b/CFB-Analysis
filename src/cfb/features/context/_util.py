@@ -56,6 +56,20 @@ def _at(values: pd.Series, keys: pd.Series) -> pd.Series:
     return out
 
 
+def empty_output(group, games: pd.DataFrame) -> pd.DataFrame:
+    """Keys of the requested games with every column empty: used when a source table is
+    absent from the warehouse (the synthetic test store), so the driver can still run."""
+    if group.level == "game":
+        out = games[["game_id"]].drop_duplicates().reset_index(drop=True)
+    else:
+        out = pd.DataFrame({"game_id": games["game_id"].tolist() * 2,
+                            "team_id": games["home_id"].tolist() + games["away_id"].tolist()})
+        out = out.drop_duplicates(["game_id", "team_id"]).reset_index(drop=True)
+    for col in group.column_names:
+        out[col] = np.nan
+    return out
+
+
 def site(rows: pd.DataFrame) -> np.ndarray:
     """+1 home, -1 away, 0 neutral."""
     return np.where(rows["neutral"].to_numpy(dtype=bool), 0.0, np.where(rows["is_home"].to_numpy(dtype=bool), 1.0, -1.0))

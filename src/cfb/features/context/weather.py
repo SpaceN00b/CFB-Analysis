@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from ..base import FeatureColumn, FeatureGroup
+from ._util import empty_output
 
 SOURCES = ("weather",)
 
@@ -24,6 +25,8 @@ class Weather(FeatureGroup):
     ]
 
     def build(self, view, games: pd.DataFrame) -> pd.DataFrame:
+        if not view.has("weather"):  # absent from this warehouse: unknown
+            return empty_output(self, games)
         w = view.table("weather", columns=["id", "gameIndoors", "temperature", "windSpeed", "precipitation",
                                            "snowfall", "humidity"])
         w = w.drop_duplicates("id", keep="last")

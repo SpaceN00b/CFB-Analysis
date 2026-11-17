@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ..base import FeatureColumn, FeatureGroup
-from ._util import _at, history_with_targets
+from ._util import empty_output, _at, history_with_targets
 
 PORTAL_START = pd.Timestamp("2020-08-01T00:00:00Z")
 RATED_STARS = 3
@@ -30,6 +30,8 @@ class Portal(FeatureGroup):
     ]
 
     def build(self, view, games: pd.DataFrame) -> pd.DataFrame:
+        if not view.has("transfer_portal"):  # absent from this warehouse: unknown
+            return empty_output(self, games)
         tp = view.table("transfer_portal", columns=["origin", "transferDate", "stars"])
         teams = view.table("teams", columns=["season", "team_id", "team"])
         names = teams.sort_values("season").drop_duplicates("team", keep="last").set_index("team")["team_id"]

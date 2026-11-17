@@ -140,6 +140,9 @@ all read through the `AsOfView` only. Check script: `scripts/context_check.py`.
 - **QB continuity.** Passing `C/ATT` rows of the team's games this season whose box score
   is visible at the cutoff; team rows (negative athlete ids) dropped. The "leader" of a
   game is the passer with the most attempts. All empty for a team's first game of a season.
+- **Missing tables.** If `transfer_portal`, `games_players` or `weather` is absent from the
+  warehouse (the synthetic test store), those groups return empty values instead of failing,
+  so the build driver runs. On the real snapshot all three are present.
 - **Weather.** As CFBD reports it: observed for played games, forecast for upcoming ones
   (only as fresh as the last ingest). Stored for phase 2.
 
