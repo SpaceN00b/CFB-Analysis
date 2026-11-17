@@ -7,13 +7,17 @@ name = "cfb"
 version = "0.1.0"
 description = "NCAA FBS game prediction: data pipeline, features, models"
 requires-python = ">=3.11"
-dependencies = ["requests>=2.31", "pandas>=2.2", "pyarrow>=15"]
+# pandas 3 is required: AsOfView hands out slices of cached tables and relies on
+# copy-on-write so callers cannot change the cache.
+dependencies = ["requests>=2.31", "numpy>=1.26", "pandas>=3.0", "pyarrow>=15"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
 [project.scripts]
 cfb-ingest = "cfb.ingest:main"
+cfb-core = "cfb.core.build:main"
+cfb-features = "cfb.features.build:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

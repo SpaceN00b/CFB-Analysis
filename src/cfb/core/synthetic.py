@@ -74,7 +74,7 @@ def write_synthetic_store(root: str | Path, seed: int = 7) -> Store:
     game_id = 400000000
     for season in SEASONS:
         base = pd.Timestamp(f"{season}-08-30T07:00:00Z")
-        base -= pd.Timedelta(days=base.dayofweek)  # Monday
+        base -= pd.Timedelta(days=base.weekday())  # Monday
         calendar = []
         for wk in range(1, REGULAR_WEEKS + 1):
             start = base + pd.Timedelta(days=7 * (wk - 1))

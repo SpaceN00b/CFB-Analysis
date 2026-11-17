@@ -273,7 +273,38 @@ def test_snapshot_every_table_on_disk_has_a_policy(snapshot):
     on_disk = {p.name for p in (snapshot.root / "tables").iterdir() if p.is_dir()}
     assert not on_disk - set(POLICIES), f"tables without a policy: {sorted(on_disk - set(POLICIES))}"
     view = snapshot.view(as_utc("2025-10-06T07:00:00Z"))
+    today = snapshot.view(snapshot.cutoffs()[-1])  # dated rating copies start on 2026-11-17
     for name in sorted(on_disk - {"plays"}):
         policy = POLICIES[name]
-        frame = view.prior_seasons(name) if policy.kind == SEASON_FINAL else view.table(name)
+        if policy.kind == SEASON_FINAL:
+            frame = view.prior_seasons(name)
+        else:
+            frame = (today if name.endswith("_asof") else view).table(name)
         assert len(frame), name
+
+
+def test_snapshot_new_tables_respect_the_cutoff(snapshot):
+    cutoff = as_utc("2025-10-06T07:00:00Z")  # start of 2025 week 7
+    view = snapshot.view(cutoff)
+    for name in ("games_players", "stats_game_havoc", "punting_games", "weather", "media", "rankings",
+                 "ratings_elo_weekly", "transfer_portal", "coach_tenures", "recruiting_teams", "ratings_elo_preseason"):
+        if not view.has(name):
+            pytest.skip(f"snapshot has no {name}; restore the 2026-11-17 snapshot or later")
+    played = set(view.table("team_game")["game_id"])
+    for name in ("games_players", "stats_game_havoc", "punting_games"):
+        assert set(view.table(name)["gameId"]) <= played, name
+    slate_or_past = set(view.schedule()["game_id"])
+    assert set(view.table("weather")["id"]) <= slate_or_past and set(view.table("media")["id"]) <= slate_or_past
+    elo = view.table("ratings_elo_weekly")
+    assert elo[elo["season"] == 2025]["week"].max() == 6  # week 7 Elo includes week 7 results
+    polls = view.table("rankings")
+    assert polls[polls["season"] == 2025]["week"].max() == 7 and set(polls[polls["season"] == 2025]["seasonType"]) == {"regular"}
+    portal = view.table("transfer_portal")
+    assert pd.to_datetime(portal["transferDate"], utc=True, format="ISO8601").max() <= cutoff
+    assert portal[portal["season"] > 2025]["destination"].isna().all()
+    tenures = view.table("coach_tenures")
+    assert not [c for c in tenures.columns if c.startswith("record.")] and "active" not in tenures.columns
+    hired = pd.to_datetime(tenures["hireDate"], utc=True, errors="coerce", format="ISO8601")
+    assert (hired.dropna() <= cutoff).all() and (tenures["endYear"].dropna().astype(float) < 2025).all()
+    assert view.table("recruiting_teams")["season"].max() == 2025
+    assert view.table("ratings_sp_asof").empty and view.prior_seasons("ratings_core")["season"].max() == 2024

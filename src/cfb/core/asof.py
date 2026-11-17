@@ -201,7 +201,7 @@ class Warehouse:
         if policy.kind == DATED:
             return ns(raw[policy.date_col]), keep
         if policy.kind == WEEKLY:
-            if policy.season_type_col:
+            if policy.season_type_col and policy.season_type_col in raw.columns:
                 stype = raw[policy.season_type_col].astype("object").reset_index(drop=True)
             else:
                 stype = pd.Series(REGULAR, index=range(n), dtype="object")

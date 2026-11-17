@@ -87,16 +87,18 @@ def _mask_portal_destination(frame: pd.DataFrame, view) -> pd.DataFrame:
 
 
 def _coach_tenures(frame: pd.DataFrame, view) -> pd.DataFrame:
-    """Show a tenure once it has begun: hire date on or before the cutoff, or, without a
-    hire date, a start year up to the cutoff season. An end that had not happened yet is blanked."""
+    """Show a tenure once it has begun: hired on or before the cutoff (for a start year
+    no later than next season), or, without a hire date, a start year up to the cutoff
+    season. An end that had not happened yet is blanked."""
     if frame.empty:
         return frame
     started = pd.Series(True, index=frame.index)
     if "startYear" in frame.columns:
-        started = pd.to_numeric(frame["startYear"], errors="coerce") <= view.season
-    if "hireDate" in frame.columns:
-        hired = pd.to_datetime(frame["hireDate"], utc=True, errors="coerce", format="ISO8601")
-        started = started.where(hired.isna(), hired <= view.cutoff)
+        start_year = pd.to_numeric(frame["startYear"], errors="coerce")
+        started = start_year <= view.season
+        if "hireDate" in frame.columns:
+            hired = pd.to_datetime(frame["hireDate"], utc=True, errors="coerce", format="ISO8601")
+            started = started.where(hired.isna(), (hired <= view.cutoff) & (start_year <= view.season + 1))
     out = frame[started.fillna(False).to_numpy()].copy()
     if "endYear" in out.columns:
         end = pd.to_numeric(out["endYear"], errors="coerce")
@@ -150,7 +152,8 @@ POLICIES: dict[str, TablePolicy] = {
     "returning_production": TablePolicy(PRESEASON, season_col="season"),
     "recruiting_teams": TablePolicy(PRESEASON, season_col="season"),
     "ratings_elo_preseason": TablePolicy(PRESEASON, season_col="season"),
-    "coach_tenures": TablePolicy(STATIC, hide=("record.*", "seasons", "active"), transform=_coach_tenures,
+    "coach_tenures": TablePolicy(STATIC, hide=("record.*", "seasons", "active", "attributionComplete"),
+                                 transform=_coach_tenures,
                                  note="a tenure appears once it has begun; later end dates are blanked"),
     # ---- raw: season-final, as of the pull date (prior seasons only) -------------
     "ratings_sp": TablePolicy(SEASON_FINAL, season_col="season"),
@@ -169,7 +172,8 @@ POLICIES: dict[str, TablePolicy] = {
     "ratings_srs_asof": TablePolicy(DATED, date_col="asof_utc", season_col="season"),
     "ratings_core_asof": TablePolicy(DATED, date_col="asof_utc", season_col="season"),
     # ---- raw: weekly ---------------------------------------------------------------
-    "ratings_elo_weekly": TablePolicy(WEEKLY, season_col="season", weekly={"regular": "post", "postseason": "post"},
+    "ratings_elo_weekly": TablePolicy(WEEKLY, season_col="season", season_type_col="season_type",
+                                      weekly={"regular": "post", "postseason": "post"},
                                       note="week N is the rating after week N's games"),
     "rankings": TablePolicy(WEEKLY, season_col="season", season_type_col="seasonType",
                             weekly={"regular": "pre", "postseason": "post"},
