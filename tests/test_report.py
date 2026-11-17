@@ -315,9 +315,12 @@ def test_season_build_keeps_other_seasons(store):
     assert len(after) == len(full) and set(after["game_id"]) == set(full["game_id"])
 
 
-def test_features_snapshot_restore(store, tmp_path):
+def test_features_snapshot_restore(tmp_path):
     import tarfile
     from cfb.run_week import ensure_features
+
+    data = tmp_path / "run" / "data"
+    data.mkdir(parents=True)
 
     src = tmp_path / "src" / "data" / "features"
     src.mkdir(parents=True)
@@ -325,7 +328,7 @@ def test_features_snapshot_restore(store, tmp_path):
     tar = tmp_path / "features.tar"
     with tarfile.open(tar, "w") as t:
         t.add(src, arcname="data/features")
-    assert ensure_features(store.root, tar) is True
-    assert (store.root / "features" / "g.parquet").exists()
-    assert ensure_features(store.root, tar) is False      # already there
-    assert ensure_features(store.root, None) is False
+    assert ensure_features(data, None) is False           # nothing to restore
+    assert ensure_features(data, tar) is True
+    assert (data / "features" / "g.parquet").exists()
+    assert ensure_features(data, tar) is False            # already there
