@@ -195,6 +195,6 @@ the model.
 ## model_v2 (P2, player-based priors)
 
 A second model id with model_v1's family on the player-based power rating plus a program
-residual: season-forward 0.5255 (v1 0.5318), 2026 weeks 1-11 0.5470 (v1 0.5586). Shown next
-to model_v1 in the weekly report; primary stays model_v1 until approved. Details:
+residual: season-forward 0.5255 (v1 0.5318), 2026 weeks 1-11 0.5470 (v1 0.5586). The weekly
+report's primary since 2026-11-17 (approved by Josiah), with model_v1 shown next to it. Details:
 [priors.md](priors.md).

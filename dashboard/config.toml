@@ -6,13 +6,13 @@
 [models]
 # The model the report is about: its picks, reasons and edges. Any model_id with a producer
 # below, a built-in baseline, or predictions already in data/predictions/<model_id>/.
-# Switched to the W8 model at gate 3 (approved by Josiah 2026-11-17).
-primary = "model_v1"
+# Switched to the W8 model at gate 3 (approved by Josiah 2026-11-17), then to model_v2
+# (player-based priors, docs/priors.md; approved by Josiah 2026-11-17 23:18 UTC).
+primary = "model_v2"
 # Shown next to the primary model and scored against it. Built in: baseline_close,
 # baseline_moneyline, baseline_elo, baseline_home.
-# model_v2 (player-based priors, docs/priors.md) is shown and scored next to model_v1 until
-# Josiah decides whether it becomes the primary.
-baselines = ["model_v2", "baseline_close", "baseline_moneyline", "baseline_elo", "baseline_home"]
+# model_v1 stays shown and scored next to model_v2 for comparison.
+baselines = ["model_v1", "baseline_close", "baseline_moneyline", "baseline_elo", "baseline_home"]
 
 [producers]
 # model_id = "module:function". Called as function(warehouse, games) and must return the

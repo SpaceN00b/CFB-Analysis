@@ -7,8 +7,8 @@ Code: `src/cfb/features/strength/players.py` (player components), `prior.py`
 `scripts/prior_harness.py` (experiment harness), `scripts/prior_select.py final` (record).
 Tests: `tests/test_priors.py`.
 
-`model_v1` and its groups are unchanged. `model_v2` is a second model id; the weekly report's
-primary stays `model_v1` until Josiah approves a switch.
+`model_v1` and its groups are unchanged. `model_v2` is a second model id. Josiah approved it
+as the weekly report's primary on 2026-11-17 (23:18 UTC); `model_v1` is still shown next to it.
 
 ## Why
 
@@ -129,9 +129,9 @@ games): model_v1 0.4679, model_v2 0.4387, closing spread 0.3955. Weeks 5-11 (414
 
 ### Weekly run
 
-`dashboard/config.toml` adds the producer `model_v2 = "cfb.predict:produce_v2"` and shows
-model_v2 next to the primary. The primary stays `model_v1` until Josiah approves a switch
-(change `primary`). `python -m cfb.predict --model model_v2 matchup "A" "B"` works too. The
+`dashboard/config.toml` has the producer `model_v2 = "cfb.predict:produce_v2"`;
+`primary = "model_v2"` since Josiah's approval on 2026-11-17, with `model_v1` among the
+compared models. `python -m cfb.run_week --primary model_v1` reports on the old model for one run. `python -m cfb.predict --model model_v2 matchup "A" "B"` works too. The
 stored-features tar `features_2014-2026_2026-11-17_p2.tar` (FEATURES_LATEST) holds the new
 groups for every season.
 

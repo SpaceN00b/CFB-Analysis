@@ -160,7 +160,8 @@ Everything the report and dashboard show, as one JSON document (`bundle_version`
 ## Spread and total (phase 2)
 
 `model_v1` fills `pred_margin` and `pred_total` (docs/points.md), and it is the primary
-model since gate 3 (2026-11-17). When the primary model fills them, game rows carry `ats`
+model from gate 3 (2026-11-17) until model_v2 replaced it the same day (docs/priors.md;
+model_v2 uses the same points models, so `pred_margin` and `pred_total` are unchanged). When the primary model fills them, game rows carry `ats`
 (side, team, line, edge, model line) and `ou` (over or under, line, edge); results carry
 `home_cover_margin`, `total_vs_line`, `ats_correct` and `ou_correct` (null for a push);
 the bundle adds `season_points` (MAE and hit rates against the closing lines, from
