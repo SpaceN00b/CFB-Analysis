@@ -118,3 +118,89 @@ def test_snapshot_unit_ratings_are_plausible(snapshot):
     off = out[(out["unit"] == "off_all") & out["team_id"].isin(fbs)]
     assert off["epa_adj"].notna().all() and off["epa_adj"].std() > 0.05
     assert (off["n_plays"] > 400).mean() > 0.9
+
+
+# ---- feature groups ------------------------------------------------------------------
+
+from cfb.core import Warehouse  # noqa: E402
+from cfb.features.base import assert_group_no_leak, run_group  # noqa: E402
+from cfb.features.strength import GROUPS  # noqa: E402
+from cfb.features.strength.groups import Polls, Power, Schedule  # noqa: E402
+
+
+def _by_name(name):
+    return next(g for g in GROUPS if g.name == name)
+
+
+def test_groups_are_registered():
+    names = {g.name for g in GROUPS}
+    assert names == {"str_power", "str_prior", "str_elo", "str_schedule", "str_luck", "str_special_teams",
+                     "str_form", "str_polls"}
+    assert all(c.name.startswith("str_") for g in GROUPS for c in g.columns)
+
+
+def test_power_rating_fades_from_prior(synthetic):
+    out = run_group(Power(), synthetic).merge(synthetic.schedule()[["game_id", "season"]], on="game_id")
+    s = out[out["season"] == 2022]
+    assert np.allclose(s["str_pwr_net"], s["str_pwr_off"] - s["str_pwr_def"], equal_nan=True)
+    fbs = s[s["str_pwr_net"].notna()]
+    assert fbs["str_pwr_net"].std() > 0
+    early, late = fbs[fbs["str_pwr_games"] == 0], fbs[fbs["str_pwr_games"] >= 3]
+    assert (early["str_pwr_prior_share"] == 1).all()
+    assert (late["str_pwr_prior_share"] < 0.6).all()
+    assert (late["str_pwr_net_se"] < early["str_pwr_net_se"].min()).all()
+
+
+def test_schedule_counts_and_sos(synthetic):
+    out = run_group(Schedule(), synthetic)
+    played = run_group(Power(), synthetic)["str_pwr_games"]
+    fbs = out["str_wins"].notna()
+    assert ((out["str_wins"] + out["str_losses"])[fbs] <= played[fbs] + 1e-9).all()
+    assert out["str_sos_remaining"].notna().any() and out["str_sos_played"].notna().any()
+
+
+def test_polls_lag_the_committee_ranking(synthetic, tmp_path):
+    wh = Warehouse(synthetic.root)
+    gi = wh.game_index
+    season = 2022
+    weeks = sorted(gi[(gi["season"] == season) & (gi["season_type"] == "regular")]["week"].unique())
+    w = int(weeks[2])
+    team = int(gi[(gi["season"] == season) & (gi["week"] == w)]["home_id"].iloc[0])
+    rows = []
+    for week in weeks[: 3]:
+        rows.append({"season": season, "seasonType": "regular", "week": int(week), "poll": "AP Top 25",
+                     "isFinal": None, "rank": int(week), "teamId": team, "school": "x", "conference": "x",
+                     "firstPlaceVotes": 0.0, "points": 100.0 * int(week)})
+        rows.append({"season": season, "seasonType": "regular", "week": int(week), "poll": "Playoff Committee Rankings",
+                     "isFinal": None, "rank": 10 + int(week), "teamId": team, "school": "x", "conference": "x",
+                     "firstPlaceVotes": 0.0, "points": None})
+    wh.put("rankings", pd.DataFrame(rows))
+    games = wh.schedule([season])
+    slate = games[(games["week"] == w) & (games["season_type"] == "regular")]
+    out = run_group(Polls(), wh, slate)
+    row = out[out["team_id"] == team].iloc[0]
+    assert row["str_poll_ap_rank"] == w and row["str_poll_ap_points"] == 100.0 * w
+    assert row["str_poll_cfp_rank"] == 10 + int(weeks[1])          # last week's committee ranking
+    other = out[out["team_id"] != team]
+    assert (other["str_poll_ap_points"] == 0).all() and other["str_poll_ap_rank"].isna().all()
+    assert (other["str_poll_ranked"] == 0).all() and row["str_poll_ranked"] == 1
+    assert_group_no_leak(Polls(), wh, n=2)
+
+
+# ---- groups on the real snapshot (skipped in CI) -------------------------------------
+
+def test_snapshot_groups_do_not_leak(snapshot):
+    cutoffs = [c for c in snapshot.cutoffs() if c.year == 2024][6:7] + [c for c in snapshot.cutoffs() if c.year == 2025][-1:]
+    for group in GROUPS:
+        assert_group_no_leak(group, snapshot, cutoffs)
+
+
+def test_snapshot_power_is_plausible(snapshot):
+    games = snapshot.schedule([2024])
+    late = games[(games["season_type"] == "regular") & (games["week"] == 12)]
+    out = run_group(Power(), snapshot, late)
+    teams = snapshot.view(late["cutoff_utc"].iloc[0]).table("teams", seasons=2024)
+    fbs = out[out["team_id"].isin(teams.loc[teams["fbs"], "team_id"])]
+    assert fbs["str_pwr_net"].notna().all()
+    assert 10 < fbs["str_pwr_net"].std() < 25
+    assert (fbs["str_pwr_games"] >= 8).mean() > 0.9
