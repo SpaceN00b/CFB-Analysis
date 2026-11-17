@@ -191,3 +191,10 @@ the model.
 - No injury or depth-chart input; bowls (opt-outs) are the weakest segment.
 - On-demand matchups use the home team's stadium (or no venue at a neutral site) and a
   kickoff at the cutoff.
+
+## model_v2 (P2, player-based priors)
+
+A second model id with model_v1's family on the player-based power rating plus a program
+residual: season-forward 0.5255 (v1 0.5318), 2026 weeks 1-11 0.5470 (v1 0.5586). Shown next
+to model_v1 in the weekly report; primary stays model_v1 until approved. Details:
+[priors.md](priors.md).

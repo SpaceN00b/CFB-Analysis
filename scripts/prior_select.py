@@ -1,8 +1,9 @@
 """Selection record for model_v2 (P2, early-season priors). Seasons through 2025 only.
 
     python scripts/prior_select.py final      # model_v2 vs model_v1 from the stored features
-    python scripts/prior_select.py search     # the prior experiments (needs the analysis
-                                              # inputs of scripts/prior_harness.py; see docs/priors.md)
+
+The search itself (prior variants, lam, program residual windows) ran through
+scripts/prior_harness.py; its results are tabled in docs/priors.md.
 
 `final` scores both frozen configurations season-forward (fit 2015..S-1, score S,
 S = 2018..2025) on the 6,024 baseline games and prints pooled, per-season and per-week-bucket
