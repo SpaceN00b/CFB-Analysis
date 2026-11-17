@@ -24,6 +24,7 @@ from ..eval.bootstrap import paired_bootstrap
 from ..eval.metrics import calibration, score_block, scored_games
 from ..features.market import MarketLines
 from .config import ReportConfig
+from .rankings import build_rankings
 from .slate import Slate, known_results
 
 BUNDLE_VERSION = 1
@@ -473,6 +474,20 @@ def _team_profiles(slate: Slate, schedule: pd.DataFrame, outcomes: pd.DataFrame,
     return out
 
 
+# ---- rankings -------------------------------------------------------------------------------
+
+def _rankings(warehouse, slate: Slate, config: ReportConfig, notes: list[str]) -> dict | None:
+    """Model top N vs the polls at the report's cutoff. Display only; built after the
+    predictions, never an input to them. A failure leaves the section out with a note."""
+    if not config.rankings_source:
+        return None
+    try:
+        return build_rankings(warehouse, slate.asof, config.rankings_source, config.rankings_top)
+    except Exception as exc:  # the rankings should never stop the report
+        notes.append(f"Model rankings could not be built: {exc}")
+        return None
+
+
 # ---- the bundle ---------------------------------------------------------------------------
 
 def build_bundle(warehouse, slate: Slate, predictions: dict[str, pd.DataFrame], config: ReportConfig,
@@ -516,6 +531,8 @@ def build_bundle(warehouse, slate: Slate, predictions: dict[str, pd.DataFrame], 
         data_path / "features" if data_path else None, slate, schedule, fbs_ids)
     for g in this_week:
         g["matchup"] = matchup_values.get(str(g["game_id"]), {})
+    notes = list(run_notes or [])
+    rankings = _rankings(warehouse, slate, config, notes)
     primary_preds = predictions.get(config.primary)
     phase2 = bool(primary_preds is not None and len(primary_preds) and primary_preds["pred_margin"].notna().any())
     return {
@@ -528,7 +545,7 @@ def build_bundle(warehouse, slate: Slate, predictions: dict[str, pd.DataFrame], 
             "lines_asof_utc": _iso(lines_asof), "lines_asof_local": _local(lines_asof, tz) if lines_asof is not None else None,
             "primary": config.primary, "primary_label": model_label(config.primary),
             "comparison": config.comparison, "timezone": config.timezone, "phase2": phase2,
-            "previous_label": slate.previous_label, "notes": list(run_notes or []),
+            "previous_label": slate.previous_label, "notes": notes,
         },
         "models": [{"id": m, "label": model_label(m), "note": MODEL_NOTES.get(m, ""),
                     "role": "primary" if m == config.primary else "baseline",
@@ -540,6 +557,7 @@ def build_bundle(warehouse, slate: Slate, predictions: dict[str, pd.DataFrame], 
         "validation": _validation(data_path, config.models),
         "teams": _team_profiles(slate, schedule, outcomes, preds, config, teams, ranks, records, feature_values, tz),
         "feature_catalog": feature_catalog,
+        "rankings": rankings,
     }
 
 

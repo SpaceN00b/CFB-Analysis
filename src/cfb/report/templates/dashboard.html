@@ -117,6 +117,7 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
     <button role="tab" data-tab="last" aria-selected="false">Last week</button>
     <button role="tab" data-tab="teams" aria-selected="false">Teams</button>
     <button role="tab" data-tab="matchup" aria-selected="false">Matchup</button>
+    <button role="tab" data-tab="rankings" aria-selected="false" id="rankings-tab">Rankings</button>
   </nav>
 
   <section data-panel="week">
@@ -189,6 +190,25 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
   <section data-panel="matchup" class="hidden">
     <div class="filters"><label>Game <select id="game-select"></select></label></div>
     <div id="matchup-body"></div>
+  </section>
+
+  <section data-panel="rankings" class="hidden">
+    <div class="tiles" id="rk-tiles"></div>
+    <div class="card">
+      <h2 id="rk-title">Model rankings vs polls</h2>
+      <p class="hint" id="rk-hint"></p>
+      <div class="filters">
+        <input type="search" id="rk-search" placeholder="Search team" aria-label="Search team">
+        <label>Compare with <select id="rk-poll"></select></label>
+        <label><input type="checkbox" id="rk-outside" checked> Poll teams outside the model's top <span id="rk-top"></span></label>
+      </div>
+      <div class="table-scroll"><table id="rk-table"></table></div>
+      <p class="hint" style="margin:10px 0 0">Gap = poll rank minus model rank: positive means the model rates the team higher than the poll. Move: places gained since last week's model ranking. SOR rank: strength of record (wins minus what a 25th-best team would expect against the same schedule). Rows in grey are outside the model's top <span id="rk-top2"></span>. Click a team for its profile.</p>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2 id="rk-lower-title">Poll ranks higher than the model</h2><div class="table-scroll"><table id="rk-lower"></table></div></div>
+      <div class="card"><h2 id="rk-only-title">Model top 25, not in the poll's top 25</h2><div class="table-scroll"><table id="rk-only"></table></div></div>
+    </div>
   </section>
 
   <footer id="footer"></footer>
@@ -711,7 +731,86 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
     body.appendChild(links);
   }
 
+  // ---- rankings ------------------------------------------------------------------------
+  var RK = B.rankings;
+  function pollLabel(p) { return p.short + (p.season_type === "postseason" ? " (final)" : " (week " + p.week + ")"); }
+  function drawRankings() {
+    var R = RK, tableEl = document.getElementById("rk-table");
+    var key = document.getElementById("rk-poll").value;
+    var q = document.getElementById("rk-search").value.trim().toLowerCase();
+    var outside = document.getElementById("rk-outside").checked;
+    var rows = R.teams.filter(function (t) {
+      if (!outside && !t.in_top) return false;
+      return !q || t.team.toLowerCase().indexOf(q) >= 0 || (t.conference || "").toLowerCase().indexOf(q) >= 0;
+    });
+    function gap(t) { var p = t.polls[key]; return p == null || t.rank == null ? null : p - t.rank; }
+    var unit = R.source.unit ? " (" + R.source.unit + ")" : "";
+    var cols = [
+      { label: "Rank", num: true, get: function (t) { return t.rank; }, render: function (t) {
+        return t.in_top ? String(t.rank) : el("span", { cls: "muted", text: t.rank == null ? "" : String(t.rank) }); } },
+      { label: "Move", num: true, get: function (t) { return t.move; }, render: function (t) {
+        if (t.move == null) return ""; if (t.move === 0) return el("span", { cls: "muted", text: "=" });
+        return el("span", { cls: t.move > 0 ? "right-mark" : "wrong-mark", text: (t.move > 0 ? "▲" : "▼") + Math.abs(t.move) }); } },
+      { label: "Team", get: function (t) { return t.team; }, render: function (t) { return t.in_top ? t.team : el("span", { cls: "muted", text: t.team }); } },
+      { label: "Conf", get: function (t) { return t.conference; }, render: function (t) { return t.conference || ""; } },
+      { label: "Record", render: function (t) { return t.record; } },
+      { label: R.source.label + unit, num: true, get: function (t) { return t.rating; }, render: function (t) {
+        return t.rating == null ? "" : (R.source.unit === "pts" ? signed(t.rating, 1) : t.rating.toFixed(R.source.unit === "Elo" ? 0 : 2)); } }
+    ];
+    if (R.source.columns.indexOf("off") >= 0) cols.push({ label: "Off", num: true, title: "Points per game against an average FBS defense", get: function (t) { return t.off; }, render: function (t) { return num(t.off, 1); } });
+    if (R.source.columns.indexOf("def") >= 0) cols.push({ label: "Def", num: true, title: "Points per game allowed to an average FBS offense (lower is better)", get: function (t) { return t.def == null ? null : -t.def; }, render: function (t) { return num(t.def, 1); } });
+    cols.push({ label: "SOR rank", num: true, title: "Strength of record rank among FBS teams", get: function (t) { return t.sor_rank == null ? null : -t.sor_rank; }, render: function (t) { return t.sor_rank == null ? "" : String(t.sor_rank); } });
+    R.polls.forEach(function (p) {
+      cols.push({ label: p.short, num: true, title: pollLabel(p), get: function (t) { return t.polls[p.key] == null ? null : -t.polls[p.key]; },
+        render: function (t) { var v = t.polls[p.key]; return v == null ? el("span", { cls: "muted", text: "–" }) : (p.key === key ? el("b", { text: String(v) }) : String(v)); } });
+    });
+    if (key) cols.push({ label: "Gap vs " + R.polls.filter(function (p) { return p.key === key; })[0].short, num: true,
+      get: gap, render: function (t) { var d = gap(t); if (d == null) return ""; if (d === 0) return el("span", { cls: "muted", text: "0" });
+        return el("span", { style: "color:" + (d > 0 ? "var(--div-pos)" : "var(--div-neg)"), text: (d > 0 ? "+" : "−") + Math.abs(d) }); } });
+    renderTable(tableEl, cols, rows, { sortCol: 0, sortDir: 1, onClick: function (t) {
+      if (!B.teams[String(t.team_id)]) return;
+      teamSel.value = String(t.team_id); drawTeam(String(t.team_id)); showTab("teams"); } });
+
+    var c = R.comparisons[key];
+    var lowerT = document.getElementById("rk-lower"), onlyT = document.getElementById("rk-only");
+    if (!c) { lowerT.textContent = ""; onlyT.textContent = ""; return; }
+    document.getElementById("rk-lower-title").textContent = c.poll + " ranks higher than the model";
+    document.getElementById("rk-only-title").textContent = "Model top 25, not in the " + c.poll + " top 25";
+    renderTable(lowerT, [
+      { label: "Team", render: function (d) { return d.team; } },
+      { label: c.poll, num: true, render: function (d) { return d.poll_rank; } },
+      { label: "Model", num: true, render: function (d) { return d.model_rank; } },
+      { label: "Places lower", num: true, render: function (d) { return d.diff; } }
+    ], c.model_lower);
+    renderTable(onlyT, [
+      { label: "Team", render: function (d) { return d.team; } },
+      { label: "Model", num: true, render: function (d) { return d.model_rank; } }
+    ], c.model_only);
+  }
+  function initRankings() {
+    var tab = document.getElementById("rankings-tab");
+    if (!RK || !RK.teams || !RK.teams.length) { tab.classList.add("hidden"); return; }
+    document.getElementById("rk-top").textContent = RK.top;
+    document.getElementById("rk-top2").textContent = RK.top;
+    document.getElementById("rk-title").textContent = "Model top " + RK.top + " by " + RK.source.label.toLowerCase();
+    document.getElementById("rk-hint").textContent = RK.source.note + " Ranked among " + RK.n_fbs + " FBS teams from results visible at the report's cutoff. " +
+      (RK.polls.length ? "Polls: " + RK.polls.map(pollLabel).join(", ") + "." : "No polls visible yet.") +
+      " Rankings are for comparison only and are not a model input.";
+    var sel = document.getElementById("rk-poll");
+    RK.polls.forEach(function (p) { sel.appendChild(el("option", { value: p.key, text: pollLabel(p) })); });
+    if (!RK.polls.length) sel.closest("label").classList.add("hidden");
+    var box = document.getElementById("rk-tiles"); box.textContent = "";
+    RK.polls.forEach(function (p) {
+      var c = RK.comparisons[p.key];
+      box.appendChild(tile("Same top 25 as " + pollLabel(p), c.overlap + " of 25",
+        "rank correlation " + (c.spearman == null ? "n/a" : c.spearman.toFixed(2)) + " · mean gap " + (c.mean_abs_diff == null ? "n/a" : c.mean_abs_diff.toFixed(1))));
+    });
+    ["rk-search", "rk-poll", "rk-outside"].forEach(function (id) { document.getElementById(id).addEventListener("input", drawRankings); });
+    drawRankings();
+  }
+
   // ---- start ---------------------------------------------------------------------------
+  initRankings();
   drawWeek();
   drawLast();
   var savedTeam = null; try { savedTeam = localStorage.getItem("cfb-team"); } catch (e) {}
@@ -719,7 +818,9 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
   if (firstTeam && B.teams[firstTeam]) { teamSel.value = firstTeam; drawTeam(firstTeam); }
   if (B.games.length) drawMatchup(B.games[0].game_id); else drawMatchup(null);
   var savedTab = null; try { savedTab = localStorage.getItem("cfb-tab"); } catch (e) {}
-  showTab(savedTab && document.querySelector('section[data-panel="' + savedTab + '"]') ? savedTab : "week");
+  var savedOk = savedTab && document.querySelector('section[data-panel="' + savedTab + '"]') &&
+    !document.querySelector('#tabs button[data-tab="' + savedTab + '"]').classList.contains("hidden");
+  showTab(savedOk ? savedTab : "week");
 })();
 </script>
 </body>

@@ -13,6 +13,11 @@ python -m cfb.run_week --season 2025 --week 5            # a past week (no refre
 python -m cfb.run_week --primary model_v1                # report on another model for this run
 ```
 
+```bash
+python -m cfb.rankings --season 2026 --week 12           # model top 50 vs polls, Markdown to stdout
+python -m cfb.rankings --season 2026 --week 12 --source elo --top 25
+```
+
 `--now 2026-11-17T16:00:00Z` pretends the run happens at that time (picks the week).
 `--out DIR` writes the report elsewhere. `--no-write-predictions` leaves `data/predictions` alone.
 
@@ -93,6 +98,8 @@ system. Tabs:
 - **Teams**: record, AP rank, profile features with FBS percentiles (power rating, offense,
   defense, Elo, schedule strength, strength of record, form, style, coaching, QB continuity),
   season game log with the model's win probability.
+- **Rankings**: model top 50 next to AP, Coaches and CFP ranks (see below); sortable, with
+  a poll selector for the gap column and the disagreement lists.
 - **Matchup**: every model's home win probability, the model's reasons as signed bars,
   game-specific edges (unit matchups, expected run-rate shift, rest, travel) and both
   teams' profiles side by side.
@@ -101,12 +108,49 @@ Team profile and matchup features come from `data/features/*.parquet` when they 
 (step 4); the columns shown are listed in `PROFILE_FEATURES` and `MATCHUP_FEATURES` in
 `cfb/report/bundle.py`. Missing columns are skipped.
 
+## Model rankings vs polls
+
+Code: `src/cfb/report/rankings.py`; `[rankings]` in `dashboard/config.toml`. The model's top
+50 FBS teams by a team rating at the report's cutoff, next to the latest AP, Coaches and
+playoff committee top 25 visible then. It is the last section of `report.md`, the
+**Rankings** tab of the dashboard, and `rankings` in the bundle.
+
+For reading only. The rankings are built after every model has predicted, live in
+`cfb.report` (feature discovery reads `cfb.features` only) and are written nowhere but the
+report, so they cannot change a prediction. `tests/test_rankings.py` checks this.
+
+| Column | Meaning |
+| --- | --- |
+| Rank, Move | Model rank among FBS teams; places gained since the ranking one week earlier |
+| Rating, Off, Def | The source's rating. `power`: net points per game against an average FBS team on a neutral field, and its offense and defense parts |
+| SOR rank | Strength of record: wins minus the wins a 25th-best FBS team would expect against the same schedule and sites (same definition as `str_sor`) |
+| AP, Coaches, CFP | Poll rank, each from its own latest week. The committee ranking comes out on Tuesday evening, so a Monday run shows the previous week's |
+| Gap vs poll (dashboard) | Poll rank minus model rank; positive means the model rates the team higher |
+
+Teams in a poll's top 25 that the model ranks below 50 are listed after the top 50, so every
+poll team can be compared. Per poll: how many of its top 25 are in the model's top 25, the
+Spearman correlation between poll rank and model rank over the poll's 25 teams, the mean
+absolute rank gap, the poll teams the model ranks lowest, and the model's top 25 teams the
+poll leaves out.
+
+**Rating source.** `source = "power"` (W3 power rating, default), `"elo"` (in-house Elo) or
+`"module:function"`. A function source is called as `rate(view)` with the AsOfView at the
+report's cutoff and returns `team_id`, `rating` (higher is better) and optionally `off`,
+`def`, `se`, `games`; `label` and `unit` attributes on the function name it in the report.
+That is how the trained model replaces the power rating once it can rate a team on its own
+(for example, expected margin against an average FBS team on a neutral field).
+`source = ""` turns the section off. A source that fails leaves the section out and adds a
+note to the report; it does not stop the run.
+
+The power rating is predictive (opponent-adjusted points margin); SOR is résumé-based (wins
+against the schedule played), which is closer to what polls describe.
+
 ## Bundle (`bundle.json`)
 
 Everything the report and dashboard show, as one JSON document (`bundle_version` 1):
 `meta`, `models`, `games` (this week), `previous` (last week with results), `season`
 (own-game blocks, common-game blocks, weekly series, comparisons, calibration),
-`validation`, `teams`, `feature_catalog`. It is the record of what a run predicted.
+`validation`, `teams`, `feature_catalog`, `rankings` (null when turned off). It is the record of what a run predicted.
 
 ## Room for phase 2
 

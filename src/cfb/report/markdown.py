@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .bundle import model_label
+from .rankings import render_markdown_section
 
 EDGE_LIST = 10
 MISSES = 5
@@ -163,6 +164,8 @@ def render_markdown(bundle: dict) -> str:
     out += [f"## This week: {meta['label']}", ""]
     if not games:
         out += ["No games scheduled.", ""]
+        if bundle.get("rankings"):
+            out += render_markdown_section(bundle["rankings"])
         return "\n".join(out).rstrip() + "\n"
     with_pick = [g for g in games if g.get("pick")]
     out.append(f"{len(games)} games, {len(with_pick)} with a prediction from {plabel}. Edge = model probability "
@@ -209,6 +212,8 @@ def render_markdown(bundle: dict) -> str:
         out += _table(["Game", "Model margin (home)", "Spread", "Model vs spread", "Model total", "Line total",
                        "Model vs total"], rows, "lrlrrrr")
         out.append("")
+    if bundle.get("rankings"):
+        out += render_markdown_section(bundle["rankings"])
     return "\n".join(out).rstrip() + "\n"
 
 
