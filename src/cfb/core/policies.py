@@ -42,6 +42,11 @@ DEFAULT_KEYS = frozenset({
 })
 
 
+# Player identity columns in the player-level tables (never outcomes).
+PLAYER_KEYS = ("playerId", "athleteId", "collegeAthleteId", "player", "name", "firstName", "lastName",
+               "position", "conference", "collegeTeam", "collegeId", "committedTo", "recruitIds")
+
+
 @dataclass(frozen=True)
 class TablePolicy:
     kind: str
@@ -139,6 +144,17 @@ POLICIES: dict[str, TablePolicy] = {
                                  keys=("category", "statType", "athleteId")),
     "stats_game_havoc": TablePolicy(GAME, game_col="gameId", season_col="season"),
     "punting_games": TablePolicy(GAME, game_col="gameId", season_col="season"),
+    # ---- raw: player level, per game (P1) ---------------------------------------------
+    "player_success_games": TablePolicy(GAME, game_col="gameId", season_col="season",
+                                        keys=PLAYER_KEYS),
+    "passing_players_games": TablePolicy(GAME, game_col="gameId", season_col="season",
+                                         keys=PLAYER_KEYS, note="FBS passers; data from 2025 only"),
+    "ppa_players_games": TablePolicy(WEEKLY, season_col="season", season_type_col="season_type",
+                                     weekly={"regular": "post", "postseason": "post"}, keys=PLAYER_KEYS,
+                                     note="no gameId in the API: rows are visible when their calendar "
+                                          "week ends (the postseason is one week, so bowls are visible "
+                                          "after the last bowl); join to games through "
+                                          "player_success_games or team + opponent"),
     # ---- raw: pregame --------------------------------------------------------------
     "lines": TablePolicy(PREGAME, game_col="id", season_col="season", hide=("homeScore", "awayScore"),
                          note="includes closing lines, which are later than a week-start cutoff; "
@@ -152,6 +168,15 @@ POLICIES: dict[str, TablePolicy] = {
     "returning_production": TablePolicy(PRESEASON, season_col="season"),
     "recruiting_teams": TablePolicy(PRESEASON, season_col="season"),
     "ratings_elo_preseason": TablePolicy(PRESEASON, season_col="season"),
+    "roster": TablePolicy(PRESEASON, season_col="season", keys=PLAYER_KEYS,
+                          note="as of the pull: the season's final roster, used as if known before "
+                               "the season (late additions and position changes are not dated)"),
+    "recruiting_players": TablePolicy(PRESEASON, season_col="season", keys=PLAYER_KEYS,
+                                      note="season = recruiting class year (signing day, before the season)"),
+    "recruiting_players_juco": TablePolicy(PRESEASON, season_col="season", keys=PLAYER_KEYS,
+                                           note="junior-college recruits; season = class year"),
+    "draft_picks": TablePolicy(PRESEASON, season_col="season", keys=PLAYER_KEYS,
+                               note="season = draft year; the draft is held in April, before that season"),
     "coach_tenures": TablePolicy(STATIC, hide=("record.*", "seasons", "active", "attributionComplete"),
                                  transform=_coach_tenures,
                                  note="a tenure appears once it has begun; later end dates are blanked"),
@@ -164,6 +189,7 @@ POLICIES: dict[str, TablePolicy] = {
     "records": TablePolicy(SEASON_FINAL, season_col="season"),
     "stats_season_advanced": TablePolicy(SEASON_FINAL, season_col="season"),
     "coaches": TablePolicy(SEASON_FINAL, season_col="season"),
+    "player_usage": TablePolicy(SEASON_FINAL, season_col="season", keys=PLAYER_KEYS),
     # ---- raw: dated ----------------------------------------------------------------
     "transfer_portal": TablePolicy(DATED, date_col="transferDate", season_col="season",
                                    transform=_mask_portal_destination),

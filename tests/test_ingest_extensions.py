@@ -53,6 +53,33 @@ def test_new_datasets_are_registered():
     assert {n for n, d in BY_NAME.items() if d.asof} == {"ratings_sp", "ratings_fpi", "ratings_srs", "ratings_core"}
 
 
+def test_player_datasets_are_registered():
+    player = {
+        "roster", "player_usage", "recruiting_players", "recruiting_players_juco", "draft_picks",
+        "ppa_players_games", "player_success_games", "passing_players_games",
+    }
+    assert player <= set(BY_NAME)
+    assert years_for(BY_NAME["recruiting_players"], [2014, 2026])[0] == 2010
+    assert BY_NAME["recruiting_players_juco"].params == {"classification": "JUCO"}
+    weeks = {"regular": [1], "postseason": [1]}
+    keys = [k for k, _, _ in tasks(BY_NAME["ppa_players_games"], 2025, weeks)]
+    assert keys == ["2025_regular_01", "2025_postseason_01"]
+
+
+def test_player_tables_have_policies():
+    from cfb.core.policies import GAME, POLICIES, PRESEASON, SEASON_FINAL, WEEKLY
+    kinds = {n: POLICIES[n].kind for n in (
+        "roster", "player_usage", "recruiting_players", "recruiting_players_juco", "draft_picks",
+        "ppa_players_games", "player_success_games", "passing_players_games")}
+    assert kinds == {
+        "roster": PRESEASON, "player_usage": SEASON_FINAL, "recruiting_players": PRESEASON,
+        "recruiting_players_juco": PRESEASON, "draft_picks": PRESEASON, "ppa_players_games": WEEKLY,
+        "player_success_games": GAME, "passing_players_games": GAME,
+    }
+    # No gameId in /ppa/players/games: a week's rows wait for the end of that week.
+    assert POLICIES["ppa_players_games"].weekly == {"regular": "post", "postseason": "post"}
+
+
 def test_current_season_turns_over_in_august():
     assert current_season(datetime(2026, 11, 17, tzinfo=timezone.utc)) == 2026
     assert current_season(datetime(2027, 1, 20, tzinfo=timezone.utc)) == 2026
