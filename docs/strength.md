@@ -131,3 +131,5 @@ team's points is 11.7 (`POINTS_SD`).
 - In-house Elo parameters (K 45, home 45, regression 0.15) were chosen on 2015 to 2025;
   the grid was flat within 0.003 log loss.
 - SOS and SOR use the current ratings of past opponents, not their ratings when played.
+
+- Player-based prior (version 2, `str_power2`) for model_v2: [priors.md](priors.md).

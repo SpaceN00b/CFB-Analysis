@@ -5,7 +5,10 @@ feature code sees); the target is S's final in-house points rating (offense and 
 deviations, ridge without a prior). Ordinary least squares, pooled over seasons, with a
 leave-one-season-out R^2 for reference.
 
-    python scripts/strength_fit_prior.py [--data-dir data]
+    python scripts/strength_fit_prior.py [--data-dir data] [--version 2]
+
+Version 1 is the projection of model_v1 (COMPONENTS); version 2 adds the player components
+(COMPONENTS_V2, model_v2).
 """
 from __future__ import annotations
 
@@ -20,13 +23,14 @@ from cfb.features.strength import prior as PR
 from cfb.features.strength.units import TeamIndex
 
 
-def frame(wh: Warehouse, seasons) -> pd.DataFrame:
+def frame(wh: Warehouse, seasons, version: int = 1) -> pd.DataFrame:
     rows = []
     tg = wh.prepared("team_game").frame
     teams = wh.prepared("teams").frame
     for s in seasons:
         first = min(c for c in wh.cutoffs() if wh.season_of(c) == s)
-        comp = PR.components(wh.view(first))
+        v = wh.view(first)
+        comp = PR.components(v) if version == 1 else PR.components_v2(v)
         idx = TeamIndex.from_teams(teams[teams["season"] == s])
         fin = P.final_fit(P.observations(tg[tg["season"] == s][P.TG_COLUMNS]), idx, P.DEFAULT)
         pos = idx.index(comp.index.to_numpy())
@@ -38,12 +42,15 @@ def frame(wh: Warehouse, seasons) -> pd.DataFrame:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--version", type=int, default=1, choices=[1, 2])
     args = ap.parse_args()
     wh = Warehouse(args.data_dir)
-    X = frame(wh, range(2015, 2026))
+    X = frame(wh, range(2015, 2026), args.version)
     X = X[X["prev_off"].notna()].copy()
-    cols = ["one"] + PR.COMPONENTS
-    X[PR.COMPONENTS] = X[PR.COMPONENTS].fillna(0.0)
+    names = PR.COMPONENTS if args.version == 1 else PR.COMPONENTS_V2
+    suffix = "" if args.version == 1 else "_V2"
+    cols = ["one"] + names
+    X[names] = X[names].fillna(0.0)
     X["one"] = 1.0
     for target, name in (("fin_off", "COEF_OFF"), ("fin_def", "COEF_DEF")):
         b = np.linalg.lstsq(X[cols].to_numpy(), X[target].to_numpy(), rcond=None)[0]
@@ -59,7 +66,7 @@ def main():
             tr, te = X[X["season"] != s], X[X["season"] == s]
             bb = np.linalg.lstsq(tr[prev_only].to_numpy(), tr[target].to_numpy(), rcond=None)[0]
             err0 += float(((te[target] - te[prev_only].to_numpy() @ bb) ** 2).sum())
-        print(f"{name} = {{{', '.join(f'{c!r}: {v:.3f}' for c, v in zip(cols, b))}}}")
+        print(f"{name}{suffix} = {{{', '.join(f'{c!r}: {v:.4f}' for c, v in zip(cols, b))}}}")
         print(f"  n={len(X)}  leave-one-season-out R^2 {1 - err / tot:.3f}  (last season only: {1 - err0 / tot:.3f})")
 
 
