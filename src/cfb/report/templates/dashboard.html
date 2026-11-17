@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface-1: #fcfcfb; --surface-2: #f3f2ee;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #6f6d68;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6; --good: #006300; --bad: #b42323;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --div-pos: #2a78d6; --div-neg: #e34948; --div-mid: #f0efec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #242423;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a988f;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --accent: #3987e5; --good: #0ca30c; --bad: #e66767;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    --div-pos: #3987e5; --div-neg: #e66767; --div-mid: #383835;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #242423;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a988f;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --accent: #3987e5; --good: #0ca30c; --bad: #e66767;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+  --div-pos: #3987e5; --div-neg: #e66767; --div-mid: #383835;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--text-primary);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+header h1 { font-size: 22px; margin: 0 0 4px; font-weight: 650; }
+header .sub { color: var(--text-secondary); font-size: 13px; }
+.notes { margin: 8px 0 0; padding: 0; list-style: none; color: var(--text-secondary); font-size: 13px; }
+nav { display: flex; gap: 4px; margin: 18px 0 14px; border-bottom: 1px solid var(--grid); overflow-x: auto; }
+nav button { appearance: none; border: 0; background: none; color: var(--text-secondary); font: inherit;
+  padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+nav button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); font-weight: 600; }
+nav button:focus-visible, .row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 15px; margin: 0 0 4px; font-weight: 600; }
+.card .hint { color: var(--text-muted); font-size: 12px; margin: 0 0 12px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.tile .label { color: var(--text-secondary); font-size: 12px; }
+.tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+.tile .delta { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 12px; }
+.filters label { color: var(--text-secondary); font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+input[type="search"], select { font: inherit; color: var(--text-primary); background: var(--surface-1);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 5px 8px; max-width: 100%; }
+.table-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--text-secondary); font-weight: 600; font-size: 12px; white-space: nowrap; position: sticky; top: 0; background: var(--surface-1); }
+th.sortable { cursor: pointer; }
+th.sortable:after { content: " \2195"; color: var(--text-muted); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.row-link { cursor: pointer; }
+tr.row-link:hover td { background: var(--surface-2); }
+.muted { color: var(--text-muted); }
+.small { font-size: 12px; }
+.pill { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--axis); color: var(--text-secondary); margin-left: 4px; }
+.right-mark { color: var(--good); font-weight: 600; }
+.wrong-mark { color: var(--bad); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--text-secondary); margin: 4px 0 8px; }
+.legend .key { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; border-radius: 1px; }
+.legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; }
+svg { display: block; max-width: 100%; height: auto; }
+svg text { fill: var(--text-muted); font-size: 11px; font-family: inherit; }
+.chart-wrap { position: relative; }
+.tooltip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0,0,0,.12); border-radius: 8px; padding: 8px 10px; font-size: 12px; min-width: 150px; display: none; z-index: 5; }
+.tooltip .t-head { color: var(--text-secondary); margin-bottom: 4px; }
+.tooltip .t-row { display: flex; align-items: center; gap: 8px; }
+.tooltip .t-row b { font-variant-numeric: tabular-nums; min-width: 48px; }
+.tooltip .t-key { width: 12px; height: 2px; border-radius: 1px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+.team-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.team-head .name { font-size: 18px; font-weight: 600; }
+.bar-track { position: relative; height: 8px; background: var(--surface-2); border-radius: 4px; min-width: 80px; }
+.bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; }
+.prob-row { display: grid; grid-template-columns: 150px 1fr 52px; gap: 10px; align-items: center; margin: 6px 0; font-size: 13px; }
+.prob-row .bar-track { height: 10px; }
+.prob-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--axis); }
+.reason { display: grid; grid-template-columns: 1fr 160px 56px; gap: 10px; align-items: center; margin: 6px 0; font-size: 13px; }
+.effect-track { position: relative; height: 10px; }
+.effect-track .mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--axis); }
+.effect-track .fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.hidden { display: none !important; }
+footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
+@media (max-width: 560px) { .prob-row { grid-template-columns: 110px 1fr 46px; } .reason { grid-template-columns: 1fr 90px 48px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="title"></h1>
+    <div class="sub" id="subtitle"></div>
+    <ul class="notes" id="notes"></ul>
+  </header>
+  <nav role="tablist" id="tabs">
+    <button role="tab" data-tab="week" aria-selected="true">This week</button>
+    <button role="tab" data-tab="perf" aria-selected="false">Model vs baselines</button>
+    <button role="tab" data-tab="calib" aria-selected="false">Calibration</button>
+    <button role="tab" data-tab="last" aria-selected="false">Last week</button>
+    <button role="tab" data-tab="teams" aria-selected="false">Teams</button>
+    <button role="tab" data-tab="matchup" aria-selected="false">Matchup</button>
+  </nav>
+
+  <section data-panel="week">
+    <div class="filters">
+      <input type="search" id="week-search" placeholder="Search team" aria-label="Search team">
+      <label><select id="week-conf" aria-label="Conference"></select></label>
+      <label><input type="checkbox" id="week-fbs" checked> FBS vs FBS only</label>
+      <label><input type="checkbox" id="week-ranked"> Ranked teams only</label>
+    </div>
+    <div class="card">
+      <h2>Games and picks</h2>
+      <p class="hint" id="week-hint"></p>
+      <div class="table-scroll"><table id="week-table"></table></div>
+    </div>
+  </section>
+
+  <section data-panel="perf" class="hidden">
+    <div class="tiles" id="perf-tiles"></div>
+    <div class="card">
+      <h2>Season log loss by week, cumulative</h2>
+      <p class="hint" id="perf-hint"></p>
+      <div class="legend" id="perf-legend"></div>
+      <div class="chart-wrap" id="perf-chart"></div>
+    </div>
+    <div class="card">
+      <h2>Model against each comparison</h2>
+      <p class="hint">Paired bootstrap on games both predicted. A negative log-loss difference means the model is better.</p>
+      <div class="table-scroll"><table id="perf-compare"></table></div>
+    </div>
+    <div class="card">
+      <h2>By week</h2>
+      <p class="hint">Log loss per week on the common games, FBS vs FBS.</p>
+      <div class="table-scroll"><table id="perf-weekly"></table></div>
+    </div>
+    <div class="card hidden" id="validation-card">
+      <h2>Validation, season-forward</h2>
+      <div class="table-scroll"><table id="validation-table"></table></div>
+    </div>
+  </section>
+
+  <section data-panel="calib" class="hidden">
+    <div class="filters"><label>Model <select id="calib-model"></select></label></div>
+    <div class="card">
+      <h2 id="calib-title">Calibration</h2>
+      <p class="hint">Each dot: games in a 10-point probability bin. Dots on the diagonal mean the stated probability matched how often the home team won. Season to date, FBS vs FBS.</p>
+      <div class="chart-wrap" id="calib-chart"></div>
+      <div class="table-scroll"><table id="calib-table"></table></div>
+    </div>
+  </section>
+
+  <section data-panel="last" class="hidden">
+    <div class="tiles" id="last-tiles"></div>
+    <div class="card">
+      <h2 id="last-title">Results</h2>
+      <p class="hint">Click a column header to sort.</p>
+      <div class="table-scroll"><table id="last-table"></table></div>
+    </div>
+  </section>
+
+  <section data-panel="teams" class="hidden">
+    <div class="filters"><label>Team <select id="team-select"></select></label></div>
+    <div class="card" id="team-card"></div>
+    <div class="card">
+      <h2>Season</h2>
+      <p class="hint">Win probability is the model's for this team, at each game's cutoff.</p>
+      <div class="table-scroll"><table id="team-games"></table></div>
+    </div>
+  </section>
+
+  <section data-panel="matchup" class="hidden">
+    <div class="filters"><label>Game <select id="game-select"></select></label></div>
+    <div id="matchup-body"></div>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+
+<script id="bundle" type="application/json">__BUNDLE__</script>
+<script>
+(function () {
+  "use strict";
+  var B = JSON.parse(document.getElementById("bundle").textContent);
+  var M = B.meta;
+  var SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5"];
+  var colorOf = {};
+  B.models.forEach(function (m, i) { colorOf[m.id] = "var(" + SERIES[Math.min(i, SERIES.length - 1)] + ")"; });
+  var labelOf = {};
+  B.models.forEach(function (m) { labelOf[m.id] = m.label; });
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  // ---- helpers -------------------------------------------------------------------------
+  function el(tag, attrs) {
+    var node = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      if (k === "text") node.textContent = attrs[k];
+      else if (k === "cls") node.className = attrs[k];
+      else if (k === "style") node.style.cssText = attrs[k];
+      else node.setAttribute(k, attrs[k]);
+    });
+    for (var i = 2; i < arguments.length; i++) {
+      var c = arguments[i];
+      if (c == null) continue;
+      node.appendChild(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c);
+    }
+    return node;
+  }
+  function sv(tag, attrs) {
+    var node = document.createElementNS(SVGNS, tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      if (k === "text") node.textContent = attrs[k]; else node.setAttribute(k, attrs[k]);
+    });
+    return node;
+  }
+  function pct(p, d) { return p == null ? "" : (100 * p).toFixed(d || 0) + "%"; }
+  function num(x, d) { return x == null ? "" : x.toFixed(d == null ? 4 : d); }
+  function signed(x, d) { return x == null ? "" : (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(d == null ? 1 : d); }
+  function teamLabel(s) { return (s.rank ? "#" + s.rank + " " : "") + s.name; }
+  function matchupText(g) { return teamLabel(g.away) + (g.neutral ? " vs " : " @ ") + teamLabel(g.home); }
+  function spreadText(g) {
+    var m = g.market; if (!m || m.spread == null) return "";
+    if (m.spread === 0) return "PK";
+    return (m.spread < 0 ? g.home.name : g.away.name) + " −" + Math.abs(m.spread);
+  }
+  function pickMarket(g) {
+    if (!g.market || g.market.p_home == null || !g.pick) return null;
+    return g.pick.side === "home" ? g.market.p_home : 1 - g.market.p_home;
+  }
+  function pickEdge(g) {
+    if (g.edge == null || !g.pick) return null;
+    return g.pick.side === "home" ? g.edge : -g.edge;
+  }
+  function fmtValue(v, fmt) {
+    if (v == null) return "";
+    var sign = fmt.charAt(0) === "+", f = sign ? fmt.slice(1) : fmt;
+    var digits = parseInt(f.replace(/[^0-9]/g, ""), 10) || 0;
+    var isPct = f.indexOf("%") >= 0;
+    var x = isPct ? v * 100 : v;
+    var s = Math.abs(x).toFixed(digits) + (isPct ? "%" : "");
+    if (x < 0) return "−" + s;
+    return (sign ? "+" : "") + s;
+  }
+
+  // Sortable table: columns [{key, label, num, get(row) -> sort value, render(row) -> node|string}]
+  function renderTable(table, columns, rows, opts) {
+    opts = opts || {};
+    var state = table._sort || { col: opts.sortCol == null ? -1 : opts.sortCol, dir: opts.sortDir || 1 };
+    table._sort = state;
+    function draw() {
+      table.textContent = "";
+      var thead = el("thead"), tr = el("tr");
+      columns.forEach(function (c, i) {
+        var th = el("th", { cls: (c.num ? "num " : "") + (c.get ? "sortable" : ""), text: c.label, scope: "col" });
+        if (c.title) th.title = c.title;
+        if (c.get) th.addEventListener("click", function () {
+          state.dir = state.col === i ? -state.dir : (c.num ? -1 : 1); state.col = i; draw();
+        });
+        if (state.col === i) th.setAttribute("aria-sort", state.dir > 0 ? "ascending" : "descending");
+        tr.appendChild(th);
+      });
+      thead.appendChild(tr); table.appendChild(thead);
+      var sorted = rows.slice();
+      if (state.col >= 0 && columns[state.col].get) {
+        var g = columns[state.col].get;
+        sorted.sort(function (a, b) {
+          var x = g(a), y = g(b);
+          if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+          return (x < y ? -1 : x > y ? 1 : 0) * state.dir;
+        });
+      }
+      var tbody = el("tbody");
+      sorted.forEach(function (r) {
+        var row = el("tr");
+        if (opts.onClick) {
+          row.className = "row-link"; row.tabIndex = 0;
+          row.addEventListener("click", function () { opts.onClick(r); });
+          row.addEventListener("keydown", function (e) { if (e.key === "Enter") opts.onClick(r); });
+        }
+        columns.forEach(function (c) {
+          var v = c.render ? c.render(r) : "";
+          var td = el("td", { cls: c.num ? "num" : "" });
+          if (v instanceof Node) td.appendChild(v); else td.textContent = v == null ? "" : String(v);
+          row.appendChild(td);
+        });
+        tbody.appendChild(row);
+      });
+      if (!sorted.length) tbody.appendChild(el("tr", null, el("td", { colspan: columns.length, cls: "muted", text: "No games match." })));
+      table.appendChild(tbody);
+    }
+    draw();
+  }
+
+  // ---- header and tabs -----------------------------------------------------------------
+  document.getElementById("title").textContent = "College football: " + M.label;
+  document.getElementById("subtitle").textContent =
+    "Model: " + M.primary_label + " · predictions as of " + M.asof_local +
+    " · written " + M.created_local;
+  var notes = document.getElementById("notes");
+  if (M.lines_asof_local) notes.appendChild(el("li", { text: "Lines for games not yet played are from the data pull at " + M.lines_asof_local + ", not closing lines." }));
+  (M.notes || []).forEach(function (n) { notes.appendChild(el("li", { text: n })); });
+  document.getElementById("footer").textContent =
+    "Data: CollegeFootballData.com. Headline scope FBS vs FBS. Generated by cfb.run_week (bundle v" + B.bundle_version + ").";
+
+  var tabs = document.querySelectorAll("#tabs button");
+  function showTab(name) {
+    tabs.forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.tab === name)); });
+    document.querySelectorAll("section[data-panel]").forEach(function (s) { s.classList.toggle("hidden", s.dataset.panel !== name); });
+    try { localStorage.setItem("cfb-tab", name); } catch (e) {}
+    if (name === "perf") drawPerf();
+    if (name === "calib") drawCalib();
+  }
+  tabs.forEach(function (b) { b.addEventListener("click", function () { showTab(b.dataset.tab); }); });
+
+  // ---- this week -----------------------------------------------------------------------
+  var conferences = {};
+  B.games.forEach(function (g) { [g.home.conference, g.away.conference].forEach(function (c) { if (c) conferences[c] = 1; }); });
+  var confSel = document.getElementById("week-conf");
+  confSel.appendChild(el("option", { value: "", text: "All conferences" }));
+  Object.keys(conferences).sort().forEach(function (c) { confSel.appendChild(el("option", { value: c, text: c })); });
+  var others = M.comparison.filter(function (m) { return m !== "baseline_moneyline" && m !== "baseline_close"; });
+
+  function drawWeek() {
+    var q = document.getElementById("week-search").value.trim().toLowerCase();
+    var conf = confSel.value, fbs = document.getElementById("week-fbs").checked,
+        ranked = document.getElementById("week-ranked").checked;
+    var rows = B.games.filter(function (g) {
+      if (fbs && !g.fbs_vs_fbs) return false;
+      if (ranked && !g.home.rank && !g.away.rank) return false;
+      if (conf && g.home.conference !== conf && g.away.conference !== conf) return false;
+      if (q && (g.home.name + " " + g.away.name).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    document.getElementById("week-hint").textContent = rows.length + " of " + B.games.length +
+      " games. Edge = model probability for its pick minus the market's, in percentage points. Click a game for the matchup view.";
+    var cols = [
+      { label: "Kickoff", get: function (g) { return g.kickoff_utc; }, render: function (g) { return g.kickoff_local || ""; } },
+      { label: "Game", get: function (g) { return g.home.name; }, render: function (g) {
+        var span = el("span", null, matchupText(g));
+        if (g.conference_game) span.appendChild(el("span", { cls: "pill", text: "conf" }));
+        if (g.neutral) span.appendChild(el("span", { cls: "pill", text: "neutral" }));
+        return span; } },
+      { label: "Pick", get: function (g) { return g.pick ? g.pick.team : null; }, render: function (g) { return g.pick ? g.pick.team : ""; } },
+      { label: "Model", num: true, get: function (g) { return g.pick ? g.pick.p : null; }, render: function (g) { return g.pick ? pct(g.pick.p) : ""; } },
+      { label: "Market", num: true, title: "Market probability for the pick", get: pickMarket, render: function (g) { return pct(pickMarket(g)); } },
+      { label: "Edge", num: true, get: function (g) { var e = pickEdge(g); return e == null ? null : Math.abs(e); },
+        render: function (g) { var e = pickEdge(g); return e == null ? "" : signed(100 * e, 1); } },
+      { label: "Spread", get: function (g) { return g.market ? g.market.spread : null; }, render: spreadText },
+      { label: "Total", num: true, get: function (g) { return g.market ? g.market.total : null; }, render: function (g) { return g.market && g.market.total != null ? g.market.total : ""; } }
+    ];
+    others.forEach(function (m) {
+      cols.push({ label: labelOf[m], num: true, title: "Probability for the pick", get: function (g) { return g.p[m]; },
+        render: function (g) { var p = g.p[m]; if (p == null || !g.pick) return ""; return pct(g.pick.side === "home" ? p : 1 - p); } });
+    });
+    if (M.phase2) {
+      cols.push({ label: "Model margin", num: true, get: function (g) { return g.pred_margin; }, render: function (g) { return g.pred_margin == null ? "" : signed(g.pred_margin, 1); } });
+      cols.push({ label: "Model total", num: true, get: function (g) { return g.pred_total; }, render: function (g) { return g.pred_total == null ? "" : g.pred_total.toFixed(1); } });
+    }
+    cols.push({ label: "Top reason", render: function (g) { return g.reasons && g.reasons.length ? g.reasons[0].text : ""; } });
+    renderTable(document.getElementById("week-table"), cols, rows, { sortCol: 0, sortDir: 1, onClick: function (g) { openMatchup(g.game_id); } });
+  }
+  ["week-search", "week-conf", "week-fbs", "week-ranked"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", drawWeek);
+  });
+
+  // ---- performance ---------------------------------------------------------------------
+  function tile(label, value, delta) {
+    return el("div", { cls: "tile" }, el("div", { cls: "label", text: label }), el("div", { cls: "value", text: value }),
+      delta ? el("div", { cls: "delta", text: delta }) : null);
+  }
+  function drawPerfTiles() {
+    var box = document.getElementById("perf-tiles"); box.textContent = "";
+    var common = B.season.common, own = B.season.own[M.primary];
+    if (own) box.appendChild(tile("Model log loss, season", num(own.log_loss), own.n + " FBS vs FBS games"));
+    if (own) box.appendChild(tile("Model accuracy, season", pct(own.accuracy, 1), Math.round(own.accuracy * own.n) + " of " + own.n + " right"));
+    B.season.comparisons.slice(0, 2).forEach(function (c) {
+      box.appendChild(tile("vs " + c.label, signed(c.diff, 4), "log loss difference ± " + num(c.se) + " (n " + c.n + ")"));
+    });
+  }
+  var perfDrawn = false;
+  function drawPerf() {
+    if (perfDrawn) return; perfDrawn = true;
+    drawPerfTiles();
+    var weekly = B.season.weekly, models = B.season.common.models;
+    document.getElementById("perf-hint").textContent = "Cumulative log loss on the " + B.season.common.n +
+      " FBS vs FBS games every listed model predicted. Lower is better.";
+    var legend = document.getElementById("perf-legend");
+    models.forEach(function (m) {
+      legend.appendChild(el("span", null, el("span", { cls: "key", style: "background:" + colorOf[m] }), labelOf[m] + (m === M.primary ? " (model)" : "")));
+    });
+    lineChart(document.getElementById("perf-chart"), weekly, models);
+    var cmpCols = [
+      { label: "Versus", render: function (c) { return c.label; } },
+      { label: "Games", num: true, render: function (c) { return c.n; } },
+      { label: "Model", num: true, render: function (c) { return num(c.primary); } },
+      { label: "Other", num: true, render: function (c) { return num(c.other); } },
+      { label: "Difference", num: true, render: function (c) { return signed(c.diff, 4); } },
+      { label: "SE", num: true, render: function (c) { return num(c.se); } },
+      { label: "95% interval", num: true, render: function (c) { return "[" + signed(c.ci_lo, 4) + ", " + signed(c.ci_hi, 4) + "]"; } },
+      { label: "P(model better)", num: true, render: function (c) { return pct(c.p_primary_better); } },
+      { label: "Accuracy model / other", num: true, render: function (c) { return pct(c.accuracy_primary, 1) + " / " + pct(c.accuracy_other, 1); } }
+    ];
+    renderTable(document.getElementById("perf-compare"), cmpCols, B.season.comparisons);
+    var wkCols = [{ label: "Week", render: function (w) { return w.season_type === "postseason" ? "Post" : String(w.week); } },
+                  { label: "Games", num: true, render: function (w) { return w.n; } }];
+    models.forEach(function (m) {
+      wkCols.push({ label: labelOf[m], num: true, render: function (w) { return num(w.log_loss[m]); } });
+    });
+    renderTable(document.getElementById("perf-weekly"), wkCols, weekly);
+    var val = B.validation || {}, keys = Object.keys(val);
+    if (keys.length) {
+      document.getElementById("validation-card").classList.remove("hidden");
+      renderTable(document.getElementById("validation-table"), [
+        { label: "Model", render: function (k) { return labelOf[k] || k; } },
+        { label: "Seasons", render: function (k) { return val[k].seasons; } },
+        { label: "Games", num: true, render: function (k) { return val[k].n; } },
+        { label: "Log loss", num: true, render: function (k) { return num(val[k].log_loss); } },
+        { label: "Brier", num: true, render: function (k) { return num(val[k].brier); } },
+        { label: "Accuracy", num: true, render: function (k) { return pct(val[k].accuracy, 1); } }
+      ], keys);
+    }
+  }
+
+  function niceTicks(lo, hi, n) {
+    var span = hi - lo || 1, step = Math.pow(10, Math.floor(Math.log10(span / n)));
+    [1, 2, 2.5, 5, 10].some(function (m) { if (span / (step * m) <= n) { step *= m; return true; } return false; });
+    var out = []; for (var v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+    return out;
+  }
+
+  function lineChart(host, weekly, models) {
+    host.textContent = "";
+    if (!weekly.length) { host.appendChild(el("p", { cls: "muted", text: "No scored weeks yet." })); return; }
+    var W = 980, H = 340, L = 48, R = 170, T = 12, Bm = 28;
+    var xs = weekly.map(function (_, i) { return i; });
+    var vals = []; weekly.forEach(function (w) { models.forEach(function (m) { if (w.cumulative[m] != null) vals.push(w.cumulative[m]); }); });
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals), pad = (hi - lo) * 0.1 || 0.02;
+    lo -= pad; hi += pad;
+    var x = function (i) { return L + (xs.length === 1 ? (W - L - R) / 2 : i * (W - L - R) / (xs.length - 1)); };
+    var y = function (v) { return T + (hi - v) * (H - T - Bm) / (hi - lo); };
+    var svg = sv("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Cumulative log loss by week" });
+    niceTicks(lo, hi, 5).forEach(function (t) {
+      svg.appendChild(sv("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), stroke: "var(--grid)", "stroke-width": 1 }));
+      svg.appendChild(sv("text", { x: L - 6, y: y(t) + 4, "text-anchor": "end", text: t.toFixed(2) }));
+    });
+    weekly.forEach(function (w, i) {
+      svg.appendChild(sv("text", { x: x(i), y: H - 8, "text-anchor": "middle", text: w.season_type === "postseason" ? "Post" : "Wk " + w.week }));
+    });
+    var ends = [];
+    models.forEach(function (m) {
+      var d = "", last = null;
+      weekly.forEach(function (w, i) { var v = w.cumulative[m]; if (v == null) return; d += (d ? "L" : "M") + x(i) + "," + y(v); last = [x(i), y(v), v]; });
+      svg.appendChild(sv("path", { d: d, fill: "none", stroke: colorOf[m], "stroke-width": m === M.primary ? 2.5 : 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+      if (last) {
+        svg.appendChild(sv("circle", { cx: last[0], cy: last[1], r: 4, fill: colorOf[m], stroke: "var(--surface-1)", "stroke-width": 2 }));
+        ends.push({ m: m, y: last[1], v: last[2] });
+      }
+    });
+    // End labels with leader lines, spaced at least 14px apart.
+    ends.sort(function (a, b) { return a.y - b.y; });
+    var prev = -Infinity;
+    ends.forEach(function (e) {
+      var ly = Math.max(e.y, prev + 14); prev = ly;
+      var lx = W - R + 14;
+      svg.appendChild(sv("line", { x1: W - R + 4, y1: e.y, x2: lx - 2, y2: ly - 4, stroke: "var(--axis)", "stroke-width": 1 }));
+      svg.appendChild(sv("text", { x: lx, y: ly, style: "fill: var(--text-secondary)", text: labelOf[e.m] + " " + e.v.toFixed(3) }));
+    });
+    var cross = sv("line", { y1: T, y2: H - Bm, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
+    svg.appendChild(cross);
+    var hit = sv("rect", { x: L, y: T, width: W - L - R, height: H - T - Bm, fill: "transparent" });
+    svg.appendChild(hit);
+    host.appendChild(svg);
+    var tip = el("div", { cls: "tooltip" }); host.appendChild(tip);
+    function move(evt) {
+      var r = svg.getBoundingClientRect(), px = (evt.clientX - r.left) * W / r.width;
+      var i = Math.round((px - L) / ((W - L - R) / Math.max(1, xs.length - 1)));
+      i = Math.max(0, Math.min(xs.length - 1, i));
+      var w = weekly[i];
+      cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+      tip.textContent = "";
+      tip.appendChild(el("div", { cls: "t-head", text: (w.season_type === "postseason" ? "Postseason" : "Week " + w.week) + " · " + w.n + " games" }));
+      models.forEach(function (m) {
+        tip.appendChild(el("div", { cls: "t-row" }, el("span", { cls: "t-key", style: "background:" + colorOf[m] }),
+          el("b", { text: num(w.cumulative[m], 3) }), el("span", { cls: "muted", text: labelOf[m] + " (week " + num(w.log_loss[m], 3) + ")" })));
+      });
+      tip.style.display = "block";
+      var left = x(i) * r.width / W + 12;
+      if (left + 220 > r.width) left = x(i) * r.width / W - 232;
+      tip.style.left = Math.max(0, left) + "px"; tip.style.top = "8px";
+    }
+    hit.addEventListener("pointermove", move);
+    hit.addEventListener("pointerleave", function () { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+  }
+
+  // ---- calibration ---------------------------------------------------------------------
+  var calSel = document.getElementById("calib-model");
+  Object.keys(B.season.calibration).forEach(function (m) { calSel.appendChild(el("option", { value: m, text: labelOf[m] || m })); });
+  calSel.value = B.season.calibration[M.primary] ? M.primary : calSel.value;
+  calSel.addEventListener("input", drawCalib);
+  function drawCalib() {
+    var m = calSel.value, bins = (B.season.calibration[m] || []);
+    document.getElementById("calib-title").textContent = "Calibration: " + (labelOf[m] || m);
+    var host = document.getElementById("calib-chart"); host.textContent = "";
+    var W = 420, H = 380, L = 48, R = 16, T = 12, Bm = 40;
+    var x = function (p) { return L + p * (W - L - R); }, y = function (p) { return T + (1 - p) * (H - T - Bm); };
+    var svg = sv("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Calibration chart", style: "max-width:460px" });
+    [0, 0.2, 0.4, 0.6, 0.8, 1].forEach(function (t) {
+      svg.appendChild(sv("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), stroke: "var(--grid)", "stroke-width": 1 }));
+      svg.appendChild(sv("text", { x: L - 6, y: y(t) + 4, "text-anchor": "end", text: Math.round(t * 100) + "%" }));
+      svg.appendChild(sv("text", { x: x(t), y: H - Bm + 16, "text-anchor": "middle", text: Math.round(t * 100) + "%" }));
+    });
+    svg.appendChild(sv("text", { x: (L + W - R) / 2, y: H - 6, "text-anchor": "middle", text: "Predicted home win probability" }));
+    svg.appendChild(sv("text", { x: 12, y: (T + H - Bm) / 2, "text-anchor": "middle", transform: "rotate(-90 12 " + (T + H - Bm) / 2 + ")", text: "Home win rate" }));
+    svg.appendChild(sv("line", { x1: x(0), y1: y(0), x2: x(1), y2: y(1), stroke: "var(--axis)", "stroke-width": 1 }));
+    var pts = bins.filter(function (b) { return b.n > 0; });
+    var d = pts.map(function (b, i) { return (i ? "L" : "M") + x(b.p_mean) + "," + y(b.win_rate); }).join("");
+    svg.appendChild(sv("path", { d: d, fill: "none", stroke: colorOf[m], "stroke-width": 2, "stroke-linejoin": "round" }));
+    var tip = el("div", { cls: "tooltip" });
+    pts.forEach(function (b) {
+      var g = sv("g", { tabindex: 0 });
+      g.appendChild(sv("circle", { cx: x(b.p_mean), cy: y(b.win_rate), r: 12, fill: "transparent" }));
+      g.appendChild(sv("circle", { cx: x(b.p_mean), cy: y(b.win_rate), r: Math.max(4, Math.min(9, 2 + Math.sqrt(b.n))), fill: colorOf[m], stroke: "var(--surface-1)", "stroke-width": 2 }));
+      function show() {
+        tip.textContent = "";
+        tip.appendChild(el("div", { cls: "t-head", text: Math.round(b.p_lo * 100) + "–" + Math.round(b.p_hi * 100) + "% bin · " + b.n + " games" }));
+        tip.appendChild(el("div", null, el("b", { text: pct(b.win_rate, 1) }), " home wins"));
+        tip.appendChild(el("div", null, el("b", { text: pct(b.p_mean, 1) }), " predicted on average"));
+        var r = svg.getBoundingClientRect();
+        tip.style.display = "block"; tip.style.left = (x(b.p_mean) * r.width / W + 14) + "px"; tip.style.top = (y(b.win_rate) * r.height / H - 10) + "px";
+      }
+      g.addEventListener("pointerenter", show); g.addEventListener("focus", show);
+      g.addEventListener("pointerleave", function () { tip.style.display = "none"; });
+      g.addEventListener("blur", function () { tip.style.display = "none"; });
+      svg.appendChild(g);
+    });
+    host.appendChild(svg); host.appendChild(tip);
+    renderTable(document.getElementById("calib-table"), [
+      { label: "Bin", render: function (b) { return Math.round(b.p_lo * 100) + "–" + Math.round(b.p_hi * 100) + "%"; } },
+      { label: "Games", num: true, render: function (b) { return b.n; } },
+      { label: "Mean predicted", num: true, render: function (b) { return pct(b.p_mean, 1); } },
+      { label: "Home win rate", num: true, render: function (b) { return pct(b.win_rate, 1); } }
+    ], bins);
+  }
+
+  // ---- last week -----------------------------------------------------------------------
+  function drawLast() {
+    var P = B.previous;
+    document.getElementById("last-title").textContent = "Results: " + P.label;
+    var box = document.getElementById("last-tiles"); box.textContent = "";
+    var s = P.summary[M.primary];
+    if (s) {
+      box.appendChild(tile("Model picks right", s.correct + " of " + s.n, "FBS vs FBS, " + pct(s.accuracy, 1)));
+      box.appendChild(tile("Model log loss, last week", num(s.log_loss), "Brier " + num(s.brier)));
+    }
+    M.comparison.slice(0, 2).forEach(function (m) {
+      var o = P.summary[m]; if (o) box.appendChild(tile(labelOf[m], o.correct + " of " + o.n, "log loss " + num(o.log_loss)));
+    });
+    renderTable(document.getElementById("last-table"), [
+      { label: "Kickoff", get: function (g) { return g.kickoff_utc; }, render: function (g) { return g.kickoff_local || ""; } },
+      { label: "Game", get: function (g) { return g.home.name; }, render: matchupText },
+      { label: "Final", render: function (g) { var r = g.result; return g.away.name + " " + r.away_points + ", " + g.home.name + " " + r.home_points; } },
+      { label: "Pick", render: function (g) { return g.pick ? g.pick.team + " " + pct(g.pick.p) : ""; } },
+      { label: "Right", get: function (g) { return g.result.correct == null ? null : (g.result.correct ? 1 : 0); }, render: function (g) {
+        var c = g.result.correct; if (c == null) return "";
+        return el("span", { cls: c ? "right-mark" : "wrong-mark", text: c ? "✓ yes" : "✗ no" }); } },
+      { label: "Market on pick", num: true, get: pickMarket, render: function (g) { return pct(pickMarket(g)); } },
+      { label: "Closing spread", render: spreadText },
+      { label: "Log loss", num: true, get: function (g) { return g.result.log_loss[M.primary]; }, render: function (g) { return num(g.result.log_loss[M.primary], 3); } }
+    ], P.games, { sortCol: 0, sortDir: 1 });
+  }
+
+  // ---- teams ---------------------------------------------------------------------------
+  var teamSel = document.getElementById("team-select");
+  var teamIds = Object.keys(B.teams).sort(function (a, b) { return B.teams[a].name.localeCompare(B.teams[b].name); });
+  teamIds.forEach(function (id) { teamSel.appendChild(el("option", { value: id, text: B.teams[id].name })); });
+  teamSel.addEventListener("input", function () { drawTeam(teamSel.value); });
+  function featureRows(features, catalog) {
+    var box = el("div");
+    catalog.forEach(function (c) {
+      var f = features[c.column]; if (!f) return;
+      var share = c.higher_is_better === false ? 1 - f.pct : f.pct;
+      var track = el("div", { cls: "bar-track", title: "Percentile among FBS teams" },
+        el("div", { cls: "bar-fill", style: "width:" + Math.round(100 * share) + "%" }));
+      box.appendChild(el("div", { cls: "prob-row" }, el("span", { cls: "small", text: c.label }), track,
+        el("span", { cls: "num small", style: "text-align:right", text: fmtValue(f.value, c.format) })));
+    });
+    return box;
+  }
+  function drawTeam(id) {
+    var t = B.teams[id]; if (!t) return;
+    var card = document.getElementById("team-card"); card.textContent = "";
+    var tags = [t.conference || "", "record " + t.record, "conference " + t.conf_record];
+    if (t.rank_ap) tags.unshift("AP #" + t.rank_ap);
+    card.appendChild(el("div", { cls: "team-head" }, el("span", { cls: "name", text: t.name }), el("span", { cls: "muted", text: tags.filter(Boolean).join(" · ") })));
+    var cat = (B.feature_catalog && B.feature_catalog.profile) || [];
+    if (cat.length && Object.keys(t.features).length) {
+      card.appendChild(el("p", { cls: "hint", style: "margin-top:10px", text: "Bars show the percentile among FBS teams (longer = better where better is defined; otherwise higher)." }));
+      card.appendChild(featureRows(t.features, cat));
+    } else {
+      card.appendChild(el("p", { cls: "hint", style: "margin-top:10px", text: "No feature values in this run (features were not built)." }));
+    }
+    renderTable(document.getElementById("team-games"), [
+      { label: "Week", render: function (g) { return g.season_type === "postseason" ? "Post" : g.week; } },
+      { label: "Date", render: function (g) { return g.date; } },
+      { label: "Opponent", render: function (g) { return (g.site === "away" ? "at " : g.site === "neutral" ? "vs " : "") + g.opp; } },
+      { label: "Win prob.", num: true, render: function (g) { return pct(g.p_win); } },
+      { label: "Result", render: function (g) {
+        if (!g.result) return el("span", { cls: "muted", text: "upcoming" });
+        return g.result.outcome + " " + g.result.pts + "–" + g.result.opp_pts; } },
+      { label: "Model right", render: function (g) {
+        if (!g.result || g.p_win == null || g.result.outcome === "T") return "";
+        var right = (g.p_win >= 0.5) === (g.result.outcome === "W");
+        if (g.p_win === 0.5) right = null;
+        return right == null ? "" : el("span", { cls: right ? "right-mark" : "wrong-mark", text: right ? "✓" : "✗" }); } }
+    ], t.games);
+    try { localStorage.setItem("cfb-team", id); } catch (e) {}
+  }
+
+  // ---- matchup -------------------------------------------------------------------------
+  var gameSel = document.getElementById("game-select");
+  B.games.forEach(function (g) { gameSel.appendChild(el("option", { value: g.game_id, text: matchupText(g) })); });
+  gameSel.addEventListener("input", function () { drawMatchup(+gameSel.value); });
+  function openMatchup(id) { gameSel.value = id; drawMatchup(id); showTab("matchup"); }
+  function probBar(label, pHome, color) {
+    var track = el("div", { cls: "bar-track" }, el("div", { cls: "bar-fill", style: "width:" + Math.round(100 * pHome) + "%;background:" + color }), el("div", { cls: "prob-mid" }));
+    return el("div", { cls: "prob-row" }, el("span", { cls: "small", text: label }), track, el("span", { cls: "num small", style: "text-align:right", text: pct(pHome) }));
+  }
+  function drawMatchup(id) {
+    var g = B.games.filter(function (x) { return x.game_id === id; })[0];
+    var body = document.getElementById("matchup-body"); body.textContent = "";
+    if (!g) { body.appendChild(el("p", { cls: "muted", text: "No games this week." })); return; }
+    var head = el("div", { cls: "card" });
+    head.appendChild(el("div", { cls: "team-head" }, el("span", { cls: "name", text: matchupText(g) }),
+      el("span", { cls: "muted", text: (g.kickoff_local || "") + (g.neutral ? " · neutral site" : "") + (g.conference_game ? " · conference game" : "") })));
+    if (g.pick) head.appendChild(el("p", { style: "font-size:16px;margin:10px 0 4px" }, "Model pick: ", el("b", { text: g.pick.team }), " " + pct(g.pick.p)));
+    var mk = g.market;
+    if (mk) head.appendChild(el("p", { cls: "muted small", style: "margin:0" , text:
+      "Spread " + (spreadText(g) || "n/a") + (mk.total != null ? " · total " + mk.total : "") +
+      (mk.ml_home != null ? " · moneyline " + g.home.name + " " + (mk.ml_home > 0 ? "+" : "") + mk.ml_home + ", " + g.away.name + " " + (mk.ml_away > 0 ? "+" : "") + mk.ml_away : "") +
+      (pickEdge(g) != null ? " · edge " + signed(100 * pickEdge(g), 1) + " pts" : "") }));
+    body.appendChild(head);
+
+    var probs = el("div", { cls: "card" }, el("h2", { text: "Home win probability by model" }),
+      el("p", { cls: "hint", text: g.home.name + " (home" + (g.neutral ? ", neutral site" : "") + "). The tick marks 50%." }));
+    B.models.forEach(function (m) { var p = g.p[m.id]; if (p != null) probs.appendChild(probBar(m.label + (m.id === M.primary ? " (model)" : ""), p, colorOf[m.id])); });
+    body.appendChild(probs);
+
+    if (g.reasons && g.reasons.length) {
+      var rc = el("div", { cls: "card" }, el("h2", { text: "Why: top reasons" }),
+        el("p", { cls: "hint", text: "Effect in log-odds; bars to the right favor " + g.home.name + ", to the left " + g.away.name + "." }));
+      var maxE = Math.max.apply(null, g.reasons.map(function (r) { return Math.abs(r.effect || 0); })) || 1;
+      g.reasons.forEach(function (r) {
+        var e = r.effect || 0, w = 50 * Math.abs(e) / maxE;
+        var fill = el("div", { cls: "fill", style: "background:" + (e >= 0 ? "var(--div-pos)" : "var(--div-neg)") + ";" + (e >= 0 ? "left:50%;" : "left:" + (50 - w) + "%;") + "width:" + w + "%" });
+        rc.appendChild(el("div", { cls: "reason" }, el("span", { text: r.text }), el("div", { cls: "effect-track" }, el("div", { cls: "mid" }), fill),
+          el("span", { cls: "num small", style: "text-align:right", text: r.effect == null ? "" : signed(r.effect, 2) })));
+      });
+      body.appendChild(rc);
+    }
+
+    var mcat = (B.feature_catalog && B.feature_catalog.matchup) || [];
+    var pcat = (B.feature_catalog && B.feature_catalog.profile) || [];
+    if ((mcat.length && g.matchup && Object.keys(g.matchup).length) || pcat.length) {
+      var t = el("table");
+      t.appendChild(el("thead", null, el("tr", null, el("th", { text: "" }), el("th", { cls: "num", text: g.away.name }), el("th", { cls: "num", text: g.home.name }))));
+      var tb = el("tbody");
+      function addRow(label, a, h, fmt, hib) {
+        if (a == null && h == null) return;
+        var ta = el("td", { cls: "num", text: fmtValue(a, fmt) }), th = el("td", { cls: "num", text: fmtValue(h, fmt) });
+        if (hib != null && a != null && h != null && a !== h) {
+          var better = (hib ? a > h : a < h) ? ta : th; better.style.fontWeight = "650";
+        }
+        tb.appendChild(el("tr", null, el("td", { text: label }), ta, th));
+      }
+      var ma = (g.matchup || {})[String(g.away.id)] || {}, mh = (g.matchup || {})[String(g.home.id)] || {};
+      mcat.forEach(function (c) { addRow(c.label, ma[c.column], mh[c.column], c.format, c.higher_is_better); });
+      var ta = (B.teams[String(g.away.id)] || {}).features || {}, th = (B.teams[String(g.home.id)] || {}).features || {};
+      pcat.forEach(function (c) { addRow(c.label, ta[c.column] && ta[c.column].value, th[c.column] && th[c.column].value, c.format, c.higher_is_better); });
+      tb.appendChild(el("tr", null, el("td", { text: "Record" }), el("td", { cls: "num", text: g.away.record }), el("td", { cls: "num", text: g.home.record })));
+      if (g.home.elo != null || g.away.elo != null) addRow("CFBD pregame Elo", g.away.elo, g.home.elo, ".0f", true);
+      t.appendChild(tb);
+      body.appendChild(el("div", { cls: "card" }, el("h2", { text: "Side by side" }),
+        el("p", { cls: "hint", text: "The better value is in bold where better is defined. Values at this week's cutoff." }),
+        el("div", { cls: "table-scroll" }, t)));
+    }
+    var links = el("p", { cls: "small" });
+    [g.away, g.home].forEach(function (s, i) {
+      if (!B.teams[String(s.id)]) return;
+      var a = el("a", { href: "#", text: "Open " + s.name + " profile" });
+      a.addEventListener("click", function (e) { e.preventDefault(); teamSel.value = String(s.id); drawTeam(String(s.id)); showTab("teams"); });
+      if (i) links.appendChild(document.createTextNode(" · "));
+      links.appendChild(a);
+    });
+    body.appendChild(links);
+  }
+
+  // ---- start ---------------------------------------------------------------------------
+  drawWeek();
+  drawLast();
+  var savedTeam = null; try { savedTeam = localStorage.getItem("cfb-team"); } catch (e) {}
+  var firstTeam = (savedTeam && B.teams[savedTeam]) ? savedTeam : (B.games[0] ? String(B.games[0].home.id) : teamIds[0]);
+  if (firstTeam && B.teams[firstTeam]) { teamSel.value = firstTeam; drawTeam(firstTeam); }
+  if (B.games.length) drawMatchup(B.games[0].game_id); else drawMatchup(null);
+  var savedTab = null; try { savedTab = localStorage.getItem("cfb-tab"); } catch (e) {}
+  showTab(savedTab && document.querySelector('section[data-panel="' + savedTab + '"]') ? savedTab : "week");
+})();
+</script>
+</body>
+</html>
