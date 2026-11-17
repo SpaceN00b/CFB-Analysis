@@ -25,10 +25,10 @@ python -m cfb.rankings --season 2026 --week 12 --source elo --top 25
 
 | Step | What | Notes |
 | --- | --- | --- |
-| 1 data | Restores the snapshot tar when `data/raw` is empty | Default tar: `cfbd-data/LATEST` in project files; `--snapshot PATH` |
+| 1 data | Restores the snapshot tar when `data/raw` is empty, and the stored-features tar when `data/features` is empty | Default tars: `cfbd-data/LATEST` and `cfbd-data/FEATURES_LATEST` in project files; `--snapshot PATH`, `--features-snapshot PATH`. The model trains on past seasons' stored features; building them from nothing takes about 40 minutes |
 | 2 refresh | `cfb.ingest` for the target season, `--force`, with the dated-copy archive | Default for the current season only. Refuses without an archive (`--asof-archive`, default `$CFB_ASOF_ARCHIVE` or `/mnt/project-files/cfbd-data/asof`), because weekly SP+/FPI/SRS/CORE values cannot be pulled again. About 240 API calls. |
 | 3 core | `build_core` | Always after a refresh |
-| 4 features | `unit_ratings` (all cutoffs) and every feature group for the season | `run.build_features` in the config; about 2.5 minutes on the 2026 snapshot |
+| 4 features | `unit_ratings` (all cutoffs) and every feature group for the season | `run.build_features` in the config; about 2.5 minutes on the 2026 snapshot. Rows of other seasons in `data/features` are kept; a season missing from a file is built too |
 | 5 predict | Every model in the config, for the season's games up to the target week | Built-in baselines and producers write `data/predictions/<model_id>/`; other models are read from there |
 | 6 report | `data/reports/<season>_<type>_<week>/` | `report.md`, `dashboard.html`, `bundle.json`, `metrics/<model_id>.json` |
 | 7 publish | Copies the folder to `--publish/<key>/` and the newest files to `--publish/latest/` | Optional |

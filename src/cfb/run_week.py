@@ -7,12 +7,14 @@ season so far, write the report and the dashboard.
     python -m cfb.run_week --publish /mnt/project-files/reports
 
 Steps, each logged:
-  1. data      restore the snapshot tar into the data dir if it holds no raw data (--snapshot)
+  1. data      restore the snapshot tar into the data dir if it holds no raw data (--snapshot),
+               and the stored-features tar if data/features is empty (--features-snapshot)
   2. refresh   pull the target season from the API with --force and the dated-copy archive
                (--asof-archive; refuses to run without one unless --allow-no-archive).
                Skipped for past seasons and with --no-refresh.
   3. core      rebuild data/core (always after a refresh)
-  4. features  unit ratings and every feature group for the season (config run.build_features)
+  4. features  unit ratings and every feature group for the season (config run.build_features);
+               other seasons' rows in data/features are kept, seasons missing there are built
   5. predict   every model in the config for the season through the target week; built-in
                baselines and producers write data/predictions/<model_id>/
   6. report    data/reports/<season>_<type>_<week>/: report.md, dashboard.html, bundle.json,
@@ -108,12 +110,64 @@ def refresh(data_dir: Path, season: int, archive: Path | None, now: datetime) ->
     return failures
 
 
+def default_features_snapshot() -> Path | None:
+    latest = DEFAULT_SNAPSHOT_DIR / "FEATURES_LATEST"
+    if latest.exists():
+        p = DEFAULT_SNAPSHOT_DIR / latest.read_text().strip()
+        return p if p.exists() else None
+    return None
+
+
+def ensure_features(data_dir: Path, snapshot: Path | None) -> bool:
+    """Restore the stored-features tar (data/features/ for every season) when the data dir
+    has no feature files. The model trains on past seasons' stored features, and building
+    them from scratch takes about 40 minutes. Returns True if restored."""
+    feat = data_dir / "features"
+    if feat.exists() and any(feat.glob("*.parquet")):
+        return False
+    if snapshot is None or not Path(snapshot).exists():
+        return False
+    log(f"restoring stored features from {snapshot}")
+    target = data_dir.resolve().parent
+    with tarfile.open(snapshot) as tar:
+        members = [m for m in tar.getmembers() if m.name.startswith("data/features")]
+        try:
+            tar.extractall(target, members=members, filter="data")
+        except TypeError:  # Python without extraction filters
+            tar.extractall(target, members=members)
+    return True
+
+
+def missing_seasons(warehouse: Warehouse, group_name: str, through: int) -> list[int]:
+    """Seasons up to `through` with scheduled games but no rows in the stored feature file."""
+    sched = warehouse.game_index
+    want = set(sched.loc[sched["season"] <= through, "season"].astype(int))
+    path = warehouse.root / "features" / f"{group_name}.parquet"
+    if not path.exists():
+        return sorted(want)
+    ids = pd.read_parquet(path, columns=["game_id"])["game_id"]
+    have = set(sched.loc[sched["game_id"].isin(ids), "season"].astype(int))
+    return sorted(want - have)
+
+
 def build_features_for(warehouse: Warehouse, season: int) -> None:
+    """Unit ratings, then every feature group for `season`. Rows of other seasons in the
+    stored files are kept (the model's training rows); seasons missing from a file are
+    built too."""
     from .features.base import discover_groups
     from .features.build import build_derived, build_features
 
     build_derived(warehouse)
-    build_features(warehouse, discover_groups(), [season])
+    groups = discover_groups()
+    plan: dict[tuple[int, ...], list] = {}
+    for g in groups:
+        seasons = tuple(sorted(set(missing_seasons(warehouse, g.name, season)) | {season}))
+        plan.setdefault(seasons, []).append(g)
+    for seasons, gs in plan.items():
+        if len(seasons) > 1:
+            log(f"features: {', '.join(g.name for g in gs)} also need seasons {seasons[0]}-{seasons[-2]} "
+                "(missing from data/features); this takes a while")
+        build_features(warehouse, gs, list(seasons))
 
 
 def produce_predictions(warehouse: Warehouse, slate: Slate, config: ReportConfig, data_dir: Path,
@@ -210,7 +264,7 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
         season_type: str | None = None, week: int | None = None, now=None, do_refresh: bool | None = None,
         archive: Path | None = None, allow_no_archive: bool = False, snapshot: Path | None = None,
         build_features: bool | None = None, out_dir: Path | None = None, publish_dir: Path | None = None,
-        write_predictions: bool = True) -> RunResult:
+        write_predictions: bool = True, features_snapshot: Path | None = None) -> RunResult:
     data_dir = Path(data_dir)
     config = config or load_config()
     now_ts = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
@@ -221,6 +275,7 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
 
     log("step 1/7 data")
     ensure_data(data_dir, snapshot)
+    ensure_features(data_dir, features_snapshot)
     core_missing = not (data_dir / "core" / "game_index.parquet").exists()
     if core_missing:
         build_core(data_dir)
@@ -309,6 +364,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--allow-no-archive", action="store_true")
     ap.add_argument("--snapshot", default=None, help="tar to restore when the data dir is empty "
                     "(default: the LATEST snapshot in project files)")
+    ap.add_argument("--features-snapshot", default=None, help="stored-features tar to restore when data/features "
+                    "is empty (default: FEATURES_LATEST in project files)")
     f = ap.add_mutually_exclusive_group()
     f.add_argument("--features", dest="features", action="store_true", default=None)
     f.add_argument("--no-features", dest="features", action="store_false")
@@ -321,10 +378,12 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--week needs --season")
     config = load_config(args.config, primary=args.primary)
     snapshot = Path(args.snapshot) if args.snapshot else default_snapshot()
+    feat_snapshot = Path(args.features_snapshot) if args.features_snapshot else default_features_snapshot()
     result = run(
         data_dir=args.data_dir, config=config, season=args.season, season_type=args.season_type, week=args.week,
         now=args.now, do_refresh=args.refresh, archive=Path(args.asof_archive) if args.asof_archive else None,
         allow_no_archive=args.allow_no_archive, snapshot=snapshot, build_features=args.features,
+        features_snapshot=feat_snapshot,
         out_dir=Path(args.out) if args.out else None, publish_dir=Path(args.publish) if args.publish else None,
         write_predictions=not args.no_write_predictions,
     )

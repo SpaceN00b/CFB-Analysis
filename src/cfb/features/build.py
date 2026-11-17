@@ -72,6 +72,9 @@ def build_derived(warehouse: Warehouse, persist: bool = True) -> pd.DataFrame:
 
 def build_features(warehouse: Warehouse, groups: list[FeatureGroup], seasons: list[int] | None = None,
                    write: bool = True) -> dict[str, pd.DataFrame]:
+    """Build `groups` for the games of `seasons` (None: every season) and write
+    data/features/<group>.parquet. With `seasons`, rows of other seasons already in the file
+    are kept; the returned frames hold the built games only."""
     games = warehouse.schedule(seasons)
     out_dir = (warehouse.root / "features") if warehouse.root is not None else None
     built = {}
@@ -81,7 +84,15 @@ def build_features(warehouse: Warehouse, groups: list[FeatureGroup], seasons: li
         built[group.name] = frame
         if write and out_dir is not None:
             out_dir.mkdir(parents=True, exist_ok=True)
-            frame.to_parquet(out_dir / f"{group.name}.parquet", index=False)
+            path = out_dir / f"{group.name}.parquet"
+            if seasons is not None and path.exists():
+                # Some seasons only: keep the stored rows of every other game, so a weekly
+                # run that rebuilds the current season keeps the training seasons' features.
+                kept = pd.read_parquet(path)
+                kept = kept[~kept["game_id"].isin(games["game_id"])]
+                if len(kept):
+                    frame = pd.concat([kept, frame], ignore_index=True)
+            frame.to_parquet(path, index=False)
     if write and out_dir is not None and groups:
         write_catalog(groups, out_dir / "catalog.json")
     return built
