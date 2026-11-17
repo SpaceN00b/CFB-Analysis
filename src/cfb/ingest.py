@@ -129,6 +129,20 @@ DATASETS = [
     Dataset("games_teams", "/games/teams", "week", {"classification": "fbs"}),
     Dataset("plays", "/plays", "week", {"classification": "fbs"}),
     Dataset("games_players", "/games/players", "week", {"classification": "fbs"}, reshape=box_rows),
+    # Player level (P1). Rosters are as of the pull: the season's final roster.
+    Dataset("roster", "/roster", "year"),
+    Dataset("player_usage", "/player/usage", "year"),
+    # Recruiting classes of the four prior years are on a season's roster.
+    Dataset("recruiting_players", "/recruiting/players", "year", lag=4),
+    Dataset("recruiting_players_juco", "/recruiting/players", "year", {"classification": "JUCO"}, lag=4),
+    # Draft year Y is held in April of Y, before season Y.
+    Dataset("draft_picks", "/draft/picks", "year"),
+    # Season totals per player; season Y is a prior for Y+1, so one lag year (2013 for 2014).
+    Dataset("ppa_players_season", "/ppa/players/season", "year", lag=1),
+    # Per player and game. /ppa/players/games has no gameId (joined in core).
+    Dataset("ppa_players_games", "/ppa/players/games", "week"),
+    Dataset("player_success_games", "/stats/player/success/game", "week"),
+    Dataset("passing_players_games", "/passing/players/games", "week"),
     # Week N holds ratings after week N's games. The endpoint ignores seasonType.
     Dataset("ratings_elo_weekly", "/ratings/elo", "regular_week", ended_only=True),
     # One request per FBS team; the response is the team's full head-coach history.
