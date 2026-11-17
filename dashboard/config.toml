@@ -28,3 +28,11 @@ build_features = true
 market_models = ["baseline_moneyline", "baseline_close"]
 # Time zone for kickoff times in the report and dashboard.
 timezone = "America/New_York"
+
+[rankings]
+# Model top N next to the AP, Coaches and playoff committee top 25 (report section and
+# dashboard tab). For reading only: rankings are built after the predictions and are never a
+# model input. source: "power" (W3 power rating), "elo" (in-house Elo), or "module:function"
+# returning team_id + rating from an AsOfView (see cfb/report/rankings.py). "" turns it off.
+source = "power"
+top = 50
