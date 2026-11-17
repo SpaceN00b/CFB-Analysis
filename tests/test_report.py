@@ -294,3 +294,41 @@ def test_week12_2026_on_snapshot(snapshot, tmp_path):
     elo = b["season"]["own"]["baseline_elo"]
     assert elo["n"] == 629  # 2026 FBS vs FBS completed games through week 11
     assert len(b["teams"]) >= 130
+
+
+# ---- stored features across seasons ----------------------------------------------------------
+
+def test_season_build_keeps_other_seasons(store):
+    """A weekly run rebuilds one season; the training seasons' stored rows must survive."""
+    from cfb.features.build import build_features
+    from cfb.model.matrix import groups_by_name
+    from cfb.run_week import missing_seasons
+
+    g = groups_by_name(["ctx_season_phase"])
+    path = store.root / "features" / "ctx_season_phase.parquet"
+    seasons = sorted(store.game_index["season"].unique())
+    assert missing_seasons(store, "ctx_season_phase", LIVE) == [int(s) for s in seasons if s <= LIVE]
+    full = build_features(store, g)["ctx_season_phase"]
+    assert missing_seasons(store, "ctx_season_phase", LIVE) == []
+    build_features(store, g, [LIVE])
+    after = pd.read_parquet(path)
+    assert len(after) == len(full) and set(after["game_id"]) == set(full["game_id"])
+
+
+def test_features_snapshot_restore(tmp_path):
+    import tarfile
+    from cfb.run_week import ensure_features
+
+    data = tmp_path / "run" / "data"
+    data.mkdir(parents=True)
+
+    src = tmp_path / "src" / "data" / "features"
+    src.mkdir(parents=True)
+    pd.DataFrame({"game_id": [1], "x": [0.5]}).to_parquet(src / "g.parquet")
+    tar = tmp_path / "features.tar"
+    with tarfile.open(tar, "w") as t:
+        t.add(src, arcname="data/features")
+    assert ensure_features(data, None) is False           # nothing to restore
+    assert ensure_features(data, tar) is True
+    assert (data / "features" / "g.parquet").exists()
+    assert ensure_features(data, tar) is False            # already there
