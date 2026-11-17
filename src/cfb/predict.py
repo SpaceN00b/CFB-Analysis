@@ -109,7 +109,7 @@ class Predictor:
                               "effect": round(float(contrib[name]), 4)})
                 continue
             base = name[2:] if name[:2] in ("d_", "h_", "a_") else name
-            descr = self._descr.get(base, base)
+            descr = _label(self._descr.get(base, base))
             if name.startswith("d_"):
                 h, a = row.get(f"h_{base}"), row.get(f"a_{base}")
                 text = f"{descr}: home {_fmt(h)}, away {_fmt(a)}"
@@ -119,6 +119,16 @@ class Predictor:
             items.append({"text": text, "feature": name, "effect": round(float(contrib[name]), 4),
                           "value": None if v is None or pd.isna(v) else round(float(v), 4)})
         return reasons_json(items)
+
+
+def _label(description: str) -> str:
+    """Short label from a catalog description: the text before the first ':' or ' ('."""
+    cut = len(description)
+    for sep in (":", " (", ";"):
+        k = description.find(sep)
+        if 0 < k < cut:
+            cut = k
+    return description[:cut].strip()
 
 
 def _fmt(x) -> str:
