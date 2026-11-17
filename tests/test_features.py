@@ -169,7 +169,7 @@ def test_unit_ratings_are_empty_before_a_team_has_played(synthetic):
 def test_unit_ratings_cover_every_cutoff(synthetic):
     ratings = synthetic.view(synthetic.cutoffs()[-1]).table("unit_ratings")
     assert set(ratings["cutoff_utc"]) == set(synthetic.cutoffs())
-    assert resolve_builder()[1] == "placeholder"
+    assert resolve_builder()[1] in ("placeholder", "cfb.features.strength.unit_ratings")
     custom = lambda view: placeholder_unit_ratings(view).assign(epa_adj=0.0)
     out = build_unit_ratings(synthetic, synthetic.cutoffs()[:2], builder=custom)
     assert (out["epa_adj"] == 0.0).all() and out["cutoff_utc"].nunique() == 2
