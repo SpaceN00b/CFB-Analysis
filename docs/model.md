@@ -31,7 +31,7 @@ Frozen on 2026-11-17 using seasons through 2025 only, and committed before 2026 
 | Penalty | lam 0.03 per observation, on standardised features. Missing values are set to the training mean, with missing-value indicators for columns missing in 5% or more of rows |
 | Training rows | Every completed game with a winner from 2015 on, FBS vs FCS included, no era weighting |
 | Refit | Once per season for the validation, at every cutoff for 2026 and the weekly runs |
-| `pred_margin`, `pred_total` | Left empty (phase 2). The margin fit is an intermediate step, not a validated spread |
+| `pred_margin`, `pred_total` | Filled since phase 2 by separately selected points models (docs/points.md); `p_home_win` is unchanged |
 | `reasons` | The five largest per-feature contributions in log-odds toward the home team, with the home and away values |
 
 ## Validation (season-forward, 2018-2025)

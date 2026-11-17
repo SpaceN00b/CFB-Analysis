@@ -22,6 +22,7 @@ import pandas as pd
 from ..core.schemas import parse_reasons, read_metrics
 from ..eval.bootstrap import paired_bootstrap
 from ..eval.metrics import calibration, score_block, scored_games
+from ..eval.points import block as points_block
 from ..features.market import MarketLines
 from .config import ReportConfig
 from .rankings import build_rankings
@@ -33,12 +34,15 @@ COACHES_POLL = "Coaches Poll"
 TOP_REASONS = 3
 
 MODEL_LABELS = {
+    "model_v1": "Model v1",
     "baseline_close": "Closing spread",
     "baseline_moneyline": "Moneyline (no vig)",
     "baseline_elo": "CFBD Elo + home",
     "baseline_home": "Home team",
 }
 MODEL_NOTES = {
+    "model_v1": "Win probability from the frozen W8 model (power rating and Elo gaps); spread and total from the "
+                "phase 2 points models. Refit each week on results visible at the cutoff.",
     "baseline_close": "Spread converted to a probability. For games not yet played this is the line at the last data pull.",
     "baseline_moneyline": "Moneylines with the vig removed (2021 on). Upcoming games: line at the last data pull.",
     "baseline_elo": "Logistic fit on CFBD pregame Elo gap and home field.",
@@ -228,7 +232,7 @@ def _game_rows(games: pd.DataFrame, slate: Slate, config: ReportConfig, preds: d
             "fbs_vs_fbs": bool(g["home_fbs"] and g["away_fbs"]),
             "home": side["home"], "away": side["away"], "p": p,
             "pick": None, "reasons": [], "market": None, "edge": None,
-            "pred_margin": None, "pred_total": None, "result": None,
+            "pred_margin": None, "pred_total": None, "ats": None, "ou": None, "result": None,
         }
         if primary is not None and gid in primary.index:
             ph = float(primary.loc[gid, "p_home_win"])
@@ -252,6 +256,7 @@ def _game_rows(games: pd.DataFrame, slate: Slate, config: ReportConfig, preds: d
             }
             if p_mkt is not None and p.get(config.primary) is not None and config.primary != source:
                 row["edge"] = _f(p[config.primary] - p_mkt)
+        row["ats"], row["ou"] = _points_picks(row, side)
         if with_results and gid in res.index and pd.notna(res.loc[gid, "home_points"]):
             hp, ap = res.loc[gid, "home_points"], res.loc[gid, "away_points"]
             y = None if hp == ap else float(hp > ap)
@@ -270,8 +275,72 @@ def _game_rows(games: pd.DataFrame, slate: Slate, config: ReportConfig, preds: d
                 row["result"]["home_cover_margin"] = _f(hp - ap + row["market"]["spread"], 1)
             if row["market"] and row["market"]["total"] is not None:
                 row["result"]["total_vs_line"] = _f(hp + ap - row["market"]["total"], 1)
+            cover, over = row["result"].get("home_cover_margin"), row["result"].get("total_vs_line")
+            if row["ats"] is not None and cover is not None:
+                row["result"]["ats_correct"] = None if cover == 0 else ((cover > 0) == (row["ats"]["side"] == "home"))
+            if row["ou"] is not None and over is not None:
+                row["result"]["ou_correct"] = None if over == 0 else ((over > 0) == (row["ou"]["side"] == "over"))
         rows.append(row)
     return rows
+
+
+def _points_picks(row: dict, side: dict) -> tuple[dict | None, dict | None]:
+    """The primary model's side of the spread and the total, from pred_margin/pred_total
+    against the market line. None without a prediction, a line, or with a zero edge."""
+    m = row.get("market") or {}
+    ats = ou = None
+    if row.get("pred_margin") is not None and m.get("spread") is not None:
+        e = row["pred_margin"] + m["spread"]     # > 0: the home team covers
+        if e != 0:
+            s = "home" if e > 0 else "away"
+            line = m["spread"] if s == "home" else -m["spread"]
+            ats = {"side": s, "team": side[s]["name"], "line": _f(line, 1), "edge": _f(abs(e), 1),
+                   "model_line": _f(-row["pred_margin"], 1)}
+    if row.get("pred_total") is not None and m.get("total") is not None:
+        e = row["pred_total"] - m["total"]
+        if e != 0:
+            ou = {"side": "over" if e > 0 else "under", "line": m["total"], "edge": _f(abs(e), 1)}
+    return ats, ou
+
+
+def _points_record(rows: list[dict]) -> dict:
+    """Won-lost-push of the primary model's spread and total sides over completed games."""
+    out = {}
+    for key, res, cmp in (("ats", "home_cover_margin", "ats_correct"), ("ou", "total_vs_line", "ou_correct")):
+        w = l = pu = 0
+        for r in rows:
+            if not r["fbs_vs_fbs"] or r.get(key) is None or r["result"].get(res) is None:
+                continue
+            c = r["result"].get(cmp)
+            if c is None:
+                pu += 1
+            elif c:
+                w += 1
+            else:
+                l += 1
+        out[key] = {"won": w, "lost": l, "push": pu}
+    return out
+
+
+def _season_points(predictions: dict[str, pd.DataFrame], outcomes: pd.DataFrame, slate: Slate,
+                   config: ReportConfig, warehouse) -> dict | None:
+    """Season-to-date spread and total scores of the primary model against the closing lines."""
+    p = predictions.get(config.primary)
+    if p is None or p.empty or p["pred_margin"].notna().sum() == 0:
+        return None
+    known = known_results(outcomes, slate.asof)
+    known = known[(known["season"] == slate.season) & known["home_fbs"].astype(bool) & known["away_fbs"].astype(bool)]
+    p = p.drop_duplicates("game_id", keep="last")
+    g = p[["game_id", "pred_margin", "pred_total"]].merge(known, on="game_id", how="inner")
+    if g.empty:
+        return {"scope": "FBS vs FBS, results visible at the report's cutoff", "margin": None, "total": None}
+    lines = _market(warehouse, slate, g)
+    g = g.merge(lines[[c for c in ("game_id", "mkt_spread_close", "mkt_total_close") if c in lines.columns]],
+                on="game_id", how="left")
+    g["margin"] = (g["home_points"] - g["away_points"]).astype(float)
+    g["total"] = (g["home_points"] + g["away_points"]).astype(float)
+    return {"scope": "FBS vs FBS, results visible at the report's cutoff",
+            "margin": points_block(g, "margin"), "total": points_block(g, "total")}
 
 
 # ---- season metrics -----------------------------------------------------------------------
@@ -552,8 +621,10 @@ def build_bundle(warehouse, slate: Slate, predictions: dict[str, pd.DataFrame], 
                     "n_predictions": int(len(predictions[m])) if predictions.get(m) is not None else 0}
                    for m in config.models],
         "games": this_week,
-        "previous": {"label": slate.previous_label, "games": last_week, "summary": summary(last_week)},
+        "previous": {"label": slate.previous_label, "games": last_week, "summary": summary(last_week),
+                     "points_record": _points_record(last_week) if phase2 else None},
         "season": _season_metrics(predictions, outcomes, slate, config),
+        "season_points": _season_points(predictions, outcomes, slate, config, warehouse) if phase2 else None,
         "validation": _validation(data_path, config.models),
         "teams": _team_profiles(slate, schedule, outcomes, preds, config, teams, ranks, records, feature_values, tz),
         "feature_catalog": feature_catalog,

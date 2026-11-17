@@ -165,7 +165,25 @@ def test_markdown_phase2_section(synthetic):
     b = build_bundle(synthetic, slate, preds, cfg)
     assert b["meta"]["phase2"] is True
     md = render_markdown(b)
-    assert "## Spread and total" in md and "+3.5" in md
+    assert "## Spread and total" in md
+    g = next(x for x in b["games"] if x["pred_margin"] is not None)
+    assert "-3.5" in md and g["home"]["name"] + " -3.5" in md          # model line for the home favourite
+    with_line = [x for x in b["games"] if x["market"] and x["market"]["spread"] is not None]
+    for x in with_line:
+        e = 3.5 + x["market"]["spread"]
+        if e:
+            assert x["ats"]["side"] == ("home" if e > 0 else "away") and x["ats"]["edge"] == pytest.approx(abs(e), abs=0.06)
+    for x in b["previous"]["games"]:
+        r = x["result"]
+        if x["ats"] and r.get("home_cover_margin"):
+            assert r["ats_correct"] == ((r["home_cover_margin"] > 0) == (x["ats"]["side"] == "home"))
+    rec = b["previous"]["points_record"]
+    assert set(rec) == {"ats", "ou"} and all(set(v) == {"won", "lost", "push"} for v in rec.values())
+    sp = b["season_points"]
+    assert sp is not None and sp["margin"]["n"] > 0 and sp["margin"]["line_mae"] is not None
+    assert "Line MAE" in md and "won-lost-push" in md
+    page = render_dashboard(b)
+    assert "points-table" in page
 
 
 def test_dashboard_embeds_bundle_safely(synthetic):

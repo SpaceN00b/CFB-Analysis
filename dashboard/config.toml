@@ -17,6 +17,8 @@ baselines = ["baseline_close", "baseline_moneyline", "baseline_elo", "baseline_h
 # frame cfb.eval.splits.walk_forward returns: prediction columns plus season, season_type,
 # week. `games` holds schedule rows (no results) of the season through the target week.
 # A model without a producer is read from data/predictions/<model_id>/ as it stands.
+# model_v1: win probability (frozen W8 model) plus the phase 2 spread and total
+# (pred_margin, pred_total; cfb.model.points_config).
 model_v1 = "cfb.predict:produce"
 
 [run]

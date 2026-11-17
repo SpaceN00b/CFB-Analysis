@@ -2,8 +2,8 @@
 
 Predictive model for NCAA Division I FBS football, built on the
 [CollegeFootballData.com](https://collegefootballdata.com/) API. Phase 1 predicts the
-winner and a win probability for every game with an FBS team. Spread and totals follow
-once phase 1 holds up against the baselines.
+winner and a win probability for every game with an FBS team. Phase 2 adds a predicted
+spread and total for every game, scored against the closing lines.
 
 ## Status
 
@@ -11,9 +11,11 @@ once phase 1 holds up against the baselines.
 | --- | --- | --- |
 | Data pipeline, 2014 to 2026 | done | `cfb.ingest`, coverage in [docs/data-coverage.md](docs/data-coverage.md) |
 | Foundations: core tables, point-in-time access, leak test, feature interface, file contracts | done | `cfb.core`, `cfb.features.base`, [docs/foundations.md](docs/foundations.md) |
-| Feature groups: strength, matchup, coaching, context, market | not started | `cfb.features.<area>` |
-| Evaluation and baselines | not started | `cfb.eval` |
-| Model, weekly report, dashboard | not started | `cfb.model`, `cfb.report`, `dashboard/` |
+| Feature groups: strength, matchup, coaching, context, market | done | `cfb.features.<area>`, docs/strength.md, matchup.md, coaching.md, context.md |
+| Evaluation and baselines | done | `cfb.eval`, [docs/eval.md](docs/eval.md) |
+| Win-probability model (`model_v1`) | done | `cfb.model`, `cfb.predict`, [docs/model.md](docs/model.md) |
+| Spread and total (phase 2) | done | `cfb.model.points_config`, `cfb.eval.points`, [docs/points.md](docs/points.md) |
+| Weekly report, dashboard | done | `cfb.report`, `cfb.run_week`, `dashboard/`, [docs/report.md](docs/report.md) |
 
 Baselines to beat, season-forward on 2018 to 2025 (6,024 FBS vs FBS games): closing spread
 log loss 0.520, CFBD pregame Elo plus home field 0.549, home team always 0.679.

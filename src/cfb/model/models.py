@@ -3,6 +3,7 @@
 - `LogitModel`: ridge-penalised logistic regression on standardised features.
 - `MarginModel`: ridge regression on the home margin, turned into a probability by a
   logistic curve fitted on out-of-fold margin predictions (season blocks).
+- `PointsModel`: ridge regression on a points target (spread or total), no probability.
 
 Both share `Prep`: column means and SDs from the training rows, missing values set to the
 training mean (0 after scaling), optional missing-value indicators. Training rows can be
@@ -11,6 +12,7 @@ season).
 """
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -37,7 +39,8 @@ class Prep:
     @classmethod
     def fit(cls, X: pd.DataFrame, columns: list[str], indicators: float | None = 0.05) -> "Prep":
         A = X[columns].to_numpy(dtype="float64")
-        with np.errstate(all="ignore"):
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)   # all-empty columns (e.g. portal before 2020)
             mean = np.nanmean(A, axis=0)
             sd = np.nanstd(A, axis=0)
         mean = np.where(np.isfinite(mean), mean, 0.0)
@@ -179,4 +182,35 @@ class MarginModel:
         return pd.DataFrame(Z * self.coef * self.calib[1], columns=self.prep.names, index=X.index)
 
 
-__all__ = ["LogitModel", "MarginModel", "Prep", "era_weights", "log_loss", "ridge_logit", "ridge_ls", "sigmoid"]
+@dataclass
+class PointsModel:
+    """Ridge regression on a points target (home margin or game total), in points.
+    `contributions` are per-input points toward the target."""
+    columns: list[str]
+    lam: float = 0.03
+    era_half_life: float | None = None
+    indicators: float | None = 0.05
+    prep: Prep | None = None
+    intercept: float = 0.0
+    coef: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    resid_sd: float = float("nan")
+
+    def fit(self, X: pd.DataFrame, target: np.ndarray) -> "PointsModel":
+        target = np.asarray(target, float)
+        self.prep = Prep.fit(X, self.columns, self.indicators)
+        Z = self.prep.transform(X)
+        w = era_weights(X["season"].to_numpy(), self.era_half_life)
+        self.intercept, self.coef = ridge_ls(Z, target, w, self.lam)
+        r = target - (self.intercept + Z @ self.coef)
+        self.resid_sd = float(np.sqrt(np.average(r ** 2, weights=w)))
+        return self
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        return self.intercept + self.prep.transform(X) @ self.coef
+
+    def contributions(self, X: pd.DataFrame) -> pd.DataFrame:
+        Z = self.prep.transform(X)
+        return pd.DataFrame(Z * self.coef, columns=self.prep.names, index=X.index)
+
+
+__all__ = ["LogitModel", "MarginModel", "PointsModel", "Prep", "era_weights", "log_loss", "ridge_logit", "ridge_ls", "sigmoid"]

@@ -77,8 +77,13 @@ the report, dashboard and metrics follow `primary`. `tests/test_report.py` check
 3. This week: largest differences from the market, every game (kickoff in Eastern time,
    pick, model probability, market probability, edge, spread, top reason), then the top
    three reasons for every pick.
-4. Spread and total: only when the model fills `pred_margin` (phase 2). Columns: model
-   margin against the spread, model total against the line total.
+4. Spread and total: only when the model fills `pred_margin` (phase 2). Largest spread and
+   total differences from the market, then every game: model line (predicted margin as a
+   spread for the model's favourite), market spread, the model's side with its edge in
+   points, model total, market total, over or under with its edge. The season-to-date
+   section adds MAE against the closing lines and the hit rate of the model's sides (all
+   games, edge 3+ and 7+); last week adds the won-lost-push record and a covered column per
+   game.
 
 Market probability for a game: the de-vigged moneyline where it exists, else the closing-spread
 baseline (`run.market_models`). Edge = model probability for its pick minus the market's,
@@ -152,9 +157,13 @@ Everything the report and dashboard show, as one JSON document (`bundle_version`
 (own-game blocks, common-game blocks, weekly series, comparisons, calibration),
 `validation`, `teams`, `feature_catalog`, `rankings` (null when turned off). It is the record of what a run predicted.
 
-## Room for phase 2
+## Spread and total (phase 2)
 
-`pred_margin` and `pred_total` are carried for every game. When the primary model fills
-them, the report adds the spread-and-total section and the dashboard adds model margin and
-total columns. Last week's results already carry `home_cover_margin` (home margin plus the
-closing spread) and `total_vs_line`, so scoring against the spread needs no new data.
+`model_v1` fills `pred_margin` and `pred_total` (docs/points.md), and it is the primary
+model since gate 3 (2026-11-17). When the primary model fills them, game rows carry `ats`
+(side, team, line, edge, model line) and `ou` (over or under, line, edge); results carry
+`home_cover_margin`, `total_vs_line`, `ats_correct` and `ou_correct` (null for a push);
+the bundle adds `season_points` (MAE and hit rates against the closing lines, from
+`cfb.eval.points`) and `previous.points_record` (won-lost-push). The dashboard adds model
+line, spread pick, model total and total pick columns to This week, a spread-and-total card
+to Model vs baselines, and the record and per-game marks to Last week.

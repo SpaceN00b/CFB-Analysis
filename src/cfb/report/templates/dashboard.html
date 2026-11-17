@@ -152,6 +152,11 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
       <p class="hint">Log loss per week on the common games, FBS vs FBS.</p>
       <div class="table-scroll"><table id="perf-weekly"></table></div>
     </div>
+    <div class="card hidden" id="points-card">
+      <h2>Spread and total against the closing line</h2>
+      <p class="hint">Season to date, FBS vs FBS. MAE = mean absolute error in points. Hit rate = share of games where the model's side of the line won, pushes left out; 52.4% breaks even at -110.</p>
+      <div class="table-scroll"><table id="points-table"></table></div>
+    </div>
     <div class="card hidden" id="validation-card">
       <h2>Validation, season-forward</h2>
       <div class="table-scroll"><table id="validation-table"></table></div>
@@ -259,6 +264,24 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
     var m = g.market; if (!m || m.spread == null) return "";
     if (m.spread === 0) return "PK";
     return (m.spread < 0 ? g.home.name : g.away.name) + " −" + Math.abs(m.spread);
+  }
+  function modelLineText(g) {
+    var m = g.pred_margin; if (m == null) return "";
+    if (Math.abs(m) < 0.05) return "PK";
+    return (m > 0 ? g.home.name : g.away.name) + " −" + Math.abs(m).toFixed(1);
+  }
+  function atsText(g) {
+    var a = g.ats; if (!a) return "";
+    return a.team + " " + (a.line === 0 ? "PK" : (a.line > 0 ? "+" : "−") + Math.abs(a.line)) + " (edge " + a.edge.toFixed(1) + ")";
+  }
+  function ouText(g) {
+    var o = g.ou; if (!o) return "";
+    return (o.side === "over" ? "Over " : "Under ") + o.line + " (edge " + o.edge.toFixed(1) + ")";
+  }
+  function markCell(c) {
+    if (c === undefined) return "";
+    if (c === null) return "push";
+    return el("span", { cls: c ? "right-mark" : "wrong-mark", text: c ? "✓ yes" : "✗ no" });
   }
   function pickMarket(g) {
     if (!g.market || g.market.p_home == null || !g.pick) return null;
@@ -390,8 +413,10 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
         render: function (g) { var p = g.p[m]; if (p == null || !g.pick) return ""; return pct(g.pick.side === "home" ? p : 1 - p); } });
     });
     if (M.phase2) {
-      cols.push({ label: "Model margin", num: true, get: function (g) { return g.pred_margin; }, render: function (g) { return g.pred_margin == null ? "" : signed(g.pred_margin, 1); } });
+      cols.push({ label: "Model line", title: "Predicted margin written as a spread for the model's favourite", get: function (g) { return g.pred_margin == null ? null : -Math.abs(g.pred_margin); }, render: modelLineText });
+      cols.push({ label: "Spread pick", get: function (g) { return g.ats ? g.ats.edge : null; }, render: atsText });
       cols.push({ label: "Model total", num: true, get: function (g) { return g.pred_total; }, render: function (g) { return g.pred_total == null ? "" : g.pred_total.toFixed(1); } });
+      cols.push({ label: "Total pick", get: function (g) { return g.ou ? g.ou.edge : null; }, render: ouText });
     }
     cols.push({ label: "Top reason", render: function (g) { return g.reasons && g.reasons.length ? g.reasons[0].text : ""; } });
     renderTable(document.getElementById("week-table"), cols, rows, { sortCol: 0, sortDir: 1, onClick: function (g) { openMatchup(g.game_id); } });
@@ -438,6 +463,23 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
       { label: "Accuracy model / other", num: true, render: function (c) { return pct(c.accuracy_primary, 1) + " / " + pct(c.accuracy_other, 1); } }
     ];
     renderTable(document.getElementById("perf-compare"), cmpCols, B.season.comparisons);
+    var SP = B.season_points;
+    if (SP && SP.margin && SP.margin.n) {
+      document.getElementById("points-card").classList.remove("hidden");
+      var prow = [["Spread (home margin)", SP.margin], ["Total points", SP.total]].filter(function (r) { return r[1] && r[1].n; });
+      function hitCell(b, t) { var h = b.vs_line.filter(function (x) { return x.min_edge === t; })[0];
+        return h && h.hit_rate != null ? pct(h.hit_rate, 1) + " (" + h.n + ")" : ""; }
+      renderTable(document.getElementById("points-table"), [
+        { label: "Target", render: function (r) { return r[0]; } },
+        { label: "Games", num: true, render: function (r) { return r[1].n; } },
+        { label: "Model MAE", num: true, render: function (r) { return num(r[1].mae, 2); } },
+        { label: "Line MAE", num: true, render: function (r) { return num(r[1].line_mae, 2); } },
+        { label: "Bias", num: true, title: "Mean of actual minus predicted", render: function (r) { return signed(r[1].bias, 2); } },
+        { label: "Hit rate, all", num: true, render: function (r) { return hitCell(r[1], 0); } },
+        { label: "Edge 3+", num: true, render: function (r) { return hitCell(r[1], 3); } },
+        { label: "Edge 7+", num: true, render: function (r) { return hitCell(r[1], 7); } }
+      ], prow);
+    }
     var wkCols = [{ label: "Week", render: function (w) { return w.season_type === "postseason" ? "Post" : String(w.week); } },
                   { label: "Games", num: true, render: function (w) { return w.n; } }];
     models.forEach(function (m) {
@@ -592,7 +634,12 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
     M.comparison.slice(0, 2).forEach(function (m) {
       var o = P.summary[m]; if (o) box.appendChild(tile(labelOf[m], o.correct + " of " + o.n, "log loss " + num(o.log_loss)));
     });
-    renderTable(document.getElementById("last-table"), [
+    var rec = P.points_record;
+    if (rec) {
+      box.appendChild(tile("Model vs spread", rec.ats.won + "-" + rec.ats.lost + "-" + rec.ats.push, "won-lost-push, closing line"));
+      box.appendChild(tile("Model vs total", rec.ou.won + "-" + rec.ou.lost + "-" + rec.ou.push, "won-lost-push, closing line"));
+    }
+    var lastCols = [
       { label: "Kickoff", get: function (g) { return g.kickoff_utc; }, render: function (g) { return g.kickoff_local || ""; } },
       { label: "Game", get: function (g) { return g.home.name; }, render: matchupText },
       { label: "Final", render: function (g) { var r = g.result; return g.away.name + " " + r.away_points + ", " + g.home.name + " " + r.home_points; } },
@@ -603,7 +650,14 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
       { label: "Market on pick", num: true, get: pickMarket, render: function (g) { return pct(pickMarket(g)); } },
       { label: "Closing spread", render: spreadText },
       { label: "Log loss", num: true, get: function (g) { return g.result.log_loss[M.primary]; }, render: function (g) { return num(g.result.log_loss[M.primary], 3); } }
-    ], P.games, { sortCol: 0, sortDir: 1 });
+    ];
+    if (M.phase2) {
+      lastCols.push({ label: "Spread pick", render: atsText });
+      lastCols.push({ label: "Covered", render: function (g) { return g.ats ? markCell(g.result.ats_correct) : ""; } });
+      lastCols.push({ label: "Total pick", render: ouText });
+      lastCols.push({ label: "Right", render: function (g) { return g.ou ? markCell(g.result.ou_correct) : ""; } });
+    }
+    renderTable(document.getElementById("last-table"), lastCols, P.games, { sortCol: 0, sortDir: 1 });
   }
 
   // ---- teams ---------------------------------------------------------------------------
