@@ -10,6 +10,7 @@ spread and total for every game, scored against the closing lines.
 | Part | State | Where |
 | --- | --- | --- |
 | Data pipeline, 2014 to 2026 | done | `cfb.ingest`, coverage in [docs/data-coverage.md](docs/data-coverage.md) |
+| Sportradar play-by-play, 2013 on (players per play) | 2026 season pulled | `cfb.sportradar`, [docs/sportradar.md](docs/sportradar.md) |
 | Foundations: core tables, point-in-time access, leak test, feature interface, file contracts | done | `cfb.core`, `cfb.features.base`, [docs/foundations.md](docs/foundations.md) |
 | Feature groups: strength, matchup, coaching, context, market | done | `cfb.features.<area>`, docs/strength.md, matchup.md, coaching.md, context.md |
 | Evaluation and baselines | done | `cfb.eval`, [docs/eval.md](docs/eval.md) |
@@ -75,6 +76,7 @@ src/cfb/
 samples/                           sample prediction and metrics files
 docs/foundations.md                contracts in detail
 docs/data-coverage.md              what the snapshot holds, by dataset and season
+docs/sportradar.md                 Sportradar play-by-play source, limits, coverage
 ```
 
 `data/` is git-ignored:
