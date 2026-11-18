@@ -472,24 +472,56 @@ def local_manifest(base: str | Path, version: str | None = None) -> dict | None:
     return json.loads(p.read_text(encoding="utf-8")) if p is not None and p.exists() else None
 
 
+class SyncBusy(WarehouseError):
+    """Another process (or thread) holds base/sync.lock."""
+
+
 class _Lock:
-    def __init__(self, path: Path, stale_after: float = 6 * 3600):
-        self.path, self.stale_after = path, stale_after
+    """An OS lock on base/sync.lock (msvcrt on Windows, flock elsewhere). The OS drops it when the
+    holder exits or crashes, so a closed app or killed sync never leaves a lock that blocks the
+    next one. The file itself stays; only the lock on it matters."""
+
+    def __init__(self, path: Path):
+        self.path, self.fd = path, None
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if self.path.exists() and time.time() - self.path.stat().st_mtime > self.stale_after:
-            self.path.unlink(missing_ok=True)
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT)
         try:
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as exc:
-            raise WarehouseError(f"another sync is running ({self.path}); delete it if not") from exc
-        os.write(fd, str(os.getpid()).encode())
-        os.close(fd)
+            _os_lock(fd)
+        except OSError as exc:
+            os.close(fd)
+            raise SyncBusy("another sync is running (another app window or `cfb sync`); "
+                           "wait for it to finish") from exc
+        self.fd = fd
         return self
 
     def __exit__(self, *exc):
-        self.path.unlink(missing_ok=True)
+        try:
+            _os_unlock(self.fd)
+        finally:
+            os.close(self.fd)
+            self.fd = None
+
+
+if sys.platform == "win32":
+    import msvcrt
+
+    def _os_lock(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+
+    def _os_unlock(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _os_lock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _os_unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def _link_or_copy(src: Path, dst: Path) -> None:

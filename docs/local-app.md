@@ -8,7 +8,7 @@ Plan: `/mnt/project-files/plan/local-package.md`.
 ## Install (packaged app)
 
 1. Download `CFB-Predictor-Setup-build-<n>.exe` from the repo's latest GitHub Release
-   (built by `.github/workflows/windows-app.yml` on every merge to main that touches the app).
+   (built by `.github/workflows/windows-app.yml` when it is run by hand on main; merges do not publish builds).
 2. Run it. It installs per user (no admin rights) under `%LOCALAPPDATA%\Programs\CFB Predictor`.
    The installer is unsigned, so Windows SmartScreen asks first: "More info" > "Run anyway".
 3. Start "CFB Predictor" from the Start menu. A console window opens (closing it stops the app)

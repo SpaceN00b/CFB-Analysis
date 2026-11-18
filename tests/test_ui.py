@@ -171,3 +171,36 @@ def test_update_check(monkeypatch):
     assert update.update_available(session=FakeSession(FakeResp(200, doc)))["build"] == 12
     monkeypatch.setattr(update, "current_build", lambda: 12)
     assert update.update_available(session=FakeSession(FakeResp(200, doc))) is None
+
+
+def test_sync_job_runs_in_background_and_reports():
+    import threading
+    from cfb.ui.sync_job import SyncJob
+
+    gate, logged, job = threading.Event(), threading.Event(), SyncJob()
+
+    class R:
+        changed, version = True, "v1"
+
+    def run(log):
+        log("syncing v1")
+        logged.set()
+        gate.wait(5)
+        return R()
+
+    assert job.start(run) and job.running
+    assert not job.start(run)  # a second click while running starts nothing
+    assert logged.wait(5) and job.snapshot().lines == ["syncing v1"]
+    gate.set()
+    job.wait(5)
+    snap = job.snapshot()
+    assert snap.state == "done" and snap.result.version == "v1"
+    assert job.take_fresh() and not job.take_fresh()
+
+    def boom(log):
+        raise RuntimeError("bad key")
+
+    assert job.start(boom)
+    job.wait(5)
+    assert job.snapshot().state == "failed" and str(job.snapshot().error) == "bad key"
+    assert not job.take_fresh()

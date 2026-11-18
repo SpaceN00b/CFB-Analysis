@@ -1,14 +1,12 @@
 name: windows-app
 
-# Builds the packaged Windows app (PyInstaller + Inno Setup), smoke-tests it, and on main
-# publishes the installer as a GitHub Release tagged build-<run number>. The app's update
-# check (cfb.ui.update) compares its build number with the latest release.
+# Builds the packaged Windows app (PyInstaller + Inno Setup) and smoke-tests it on pull requests.
+# A release (GitHub Release tagged build-<run number>) is published only when the workflow is
+# run by hand (Actions > windows-app > Run workflow) on main: new builds ship only when asked.
+# The app's update check (cfb.ui.update) compares its build number with the latest release.
 # The release holds code only: no data, no keys.
 
 on:
-  push:
-    branches: [main]
-    paths: ["src/**", "packaging/**", "dashboard/**", "pyproject.toml", ".github/workflows/windows-app.yml"]
   pull_request:
     paths: ["src/cfb/ui/**", "src/cfb/settings.py", "packaging/**", "pyproject.toml", ".github/workflows/windows-app.yml"]
   workflow_dispatch:
@@ -25,7 +23,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 40
     permissions:
-      contents: write   # create the release (main only)
+      contents: write   # create the release (manual run on main only)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,7 +53,7 @@ jobs:
           path: dist/CFB-Predictor-Setup-build-*.exe
           retention-days: 14
       - name: Publish release
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

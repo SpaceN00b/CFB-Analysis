@@ -32,7 +32,7 @@ references are deleted after each publish.
 ```
 <base>/CURRENT                         version in use (replaced with os.replace)
 <base>/versions/<version>/             a full data dir + manifest.json; pass to Warehouse
-<base>/sync.lock
+<base>/sync.lock                       OS-locked while a sync runs (released if the app exits)
 ```
 
 Sync downloads only blobs not in the current version, checks size and sha256, hard-links
