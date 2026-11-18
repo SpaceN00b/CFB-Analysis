@@ -101,7 +101,7 @@ def test_sync_downloads_verifies_and_switches(data, bucket, tmp_path):
     assert d3 != d1 and (d3 / "tables/games/2026.parquet").read_bytes() == b"g2026-v2"
     assert (d3 / "core/game_index.parquet").read_bytes() == b"core"
     assert not (d3 / "reports/2026_regular_12/bundle.json").exists()
-    assert not (base / "sync.lock").exists()
+    assert_unlocked(base)
 
 
 def test_sync_rejects_bad_checksum_and_keeps_current(data, bucket, tmp_path):
@@ -116,7 +116,7 @@ def test_sync_rejects_bad_checksum_and_keeps_current(data, bucket, tmp_path):
     with pytest.raises(ws.WarehouseError, match="checksum"):
         ws.sync(base, bucket, log=quiet)
     assert ws.current_version(base) == before
-    assert not (base / "sync.lock").exists()
+    assert_unlocked(base)
 
 
 def test_sync_old_versions_pruned(data, bucket, tmp_path):
@@ -129,13 +129,28 @@ def test_sync_old_versions_pruned(data, bucket, tmp_path):
     assert len(dirs) == 2 and ws.current_data_dir(base) in dirs
 
 
+def assert_unlocked(base):
+    with ws._Lock(base / "sync.lock"):
+        pass
+
+
 def test_sync_without_manifest_and_with_lock(bucket, tmp_path):
     with pytest.raises(ws.WarehouseError, match="no manifest"):
         ws.sync(tmp_path / "pc", bucket, log=quiet)
-    (tmp_path / "pc2").mkdir()
-    (tmp_path / "pc2" / "sync.lock").write_text("1")
-    with pytest.raises(ws.WarehouseError, match="another sync"):
-        ws.sync(tmp_path / "pc2", bucket, log=quiet)
+    base = tmp_path / "pc2"
+    with ws._Lock(base / "sync.lock"):  # held by another sync (other handle, as another process would be)
+        with pytest.raises(ws.SyncBusy, match="another sync"):
+            ws.sync(base, bucket, log=quiet)
+    assert_unlocked(base)
+
+
+def test_leftover_lock_file_does_not_block(data, bucket, tmp_path):
+    """A sync.lock left by a closed app or a killed sync (as build-5 left one) is not a lock."""
+    base = tmp_path / "pc"
+    base.mkdir()
+    (base / "sync.lock").write_text("12345")
+    ws.publish(data, bucket, now=T0, log=quiet)
+    assert ws.sync(base, bucket, log=quiet).changed
 
 
 def test_settings_env_over_config(tmp_path):

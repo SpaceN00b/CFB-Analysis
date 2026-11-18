@@ -2,6 +2,7 @@
 Kept apart from app.py so tests can run one page at a time (streamlit.testing)."""
 from __future__ import annotations
 
+import time as _time
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import streamlit as st
 
 from cfb import settings
 from cfb.ui import data as D
+from cfb.ui import sync_job
 
 PCT = st.column_config.NumberColumn(format="percent")
 
@@ -50,7 +52,9 @@ def _update():
 
 
 def sidebar_update():
-    """A sidebar note when a newer build of the packaged app is on GitHub Releases."""
+    """A sidebar note when a newer build of the packaged app is on GitHub Releases, or a sync runs."""
+    if sync_job.JOB.running:
+        st.sidebar.caption("Database sync running… progress is on the Data page.")
     rel = _update()
     if rel:
         link = rel.get("installer_url") or rel.get("url")
@@ -212,25 +216,51 @@ def page_data():
         warehouse_sync = None
     if warehouse_sync is None:
         st.info("Sync from the cloud database is not in this version yet.")
-    elif st.button("Sync now", type="primary"):
-        log_box = st.empty()
-        lines: list[str] = []
+    else:
+        _sync_controls(warehouse_sync)
 
-        def log(msg: str) -> None:
-            lines.append(str(msg))
-            log_box.code("\n".join(lines[-12:]))
 
-        with st.spinner("Downloading changed files…"):
-            try:
-                store = warehouse_sync.open_store(warehouse_sync.r2_settings())
-                warehouse_sync.sync(settings.warehouse_dir(), store, log=log)
-            except Exception as exc:
-                st.error(f"Sync failed: {exc}. Check the R2 keys on the Settings page "
-                         "(r2_account_id, r2_access_key_id, r2_secret_access_key).")
-            else:
-                st.cache_data.clear()
-                st.cache_resource.clear()
-                st.success("Up to date. Reload a page to see the new data.")
+def _sync_controls(warehouse_sync) -> None:
+    job = sync_job.JOB
+    if job.running:
+        return _sync_progress()
+    if st.button("Sync now", type="primary"):
+        base = settings.warehouse_dir()
+
+        def run(log):
+            store = warehouse_sync.open_store(warehouse_sync.r2_settings())
+            return warehouse_sync.sync(base, store, log=log)
+
+        job.start(run)
+        st.rerun()
+    snap = job.snapshot()
+    if snap.state == "done":
+        r = snap.result
+        if getattr(r, "changed", False):
+            st.success(f"Synced {r.version}: downloaded {r.downloaded_files} files "
+                       f"({r.downloaded_bytes / 1e6:.1f} MB), reused {r.linked_files}.")
+        else:
+            st.success(f"Up to date ({getattr(r, 'version', '?')}).")
+    elif snap.state == "failed":
+        exc = snap.error
+        if isinstance(exc, warehouse_sync.WarehouseError):
+            st.error(f"Sync failed: {exc}")
+        else:
+            st.error(f"Sync failed: {exc}. Check the R2 keys on the Settings page "
+                     "(r2_account_id, r2_access_key_id, r2_secret_access_key).")
+    if snap.lines and snap.state != "idle":
+        st.code("\n".join(snap.lines[-12:]))
+
+
+@st.fragment(run_every=1.0)
+def _sync_progress() -> None:
+    snap = sync_job.JOB.snapshot()
+    if not snap.running:
+        st.rerun()  # whole page: show the result and the new data
+    secs = int(_time.time() - (snap.started or _time.time()))
+    st.info(f"Syncing… {secs} s. You can use other pages meanwhile; the sync keeps going.")
+    if snap.lines:
+        st.code("\n".join(snap.lines[-12:]))
 
 
 def page_settings():
