@@ -97,7 +97,7 @@ Errors: `UnknownTableError` (no policy), `BannedTableError` (season table, own s
 
 | Kind | Rule | Tables |
 | --- | --- | --- |
-| game | The game kicked off at least 5 hours before the cutoff. | `game_index`, `team_game`, `pbp`, `games`, `drives`, `plays`, `games_teams`, `stats_game_advanced`, `ppa_games`, `games_players`, `stats_game_havoc`, `punting_games` |
+| game | The game kicked off at least 5 hours before the cutoff. | `game_index`, `team_game`, `pbp`, `play_detail`, `play_players`, `play_penalties`, `games`, `drives`, `plays`, `games_teams`, `stats_game_advanced`, `ppa_games`, `games_players`, `stats_game_havoc`, `punting_games` |
 | pregame | The game's own cutoff is at or before the view's: past games and the slate. | `game_pregame`, `lines`, `media`, `weather` |
 | preseason | Season up to the cutoff season. | `teams`, `teams_fbs`, `talent`, `returning_production`, `recruiting_teams`, `ratings_elo_preseason` |
 | season final | `view.table` raises. `view.prior_seasons` returns seasons whose last calendar week ended before the cutoff. | `ratings_sp`, `ratings_fpi`, `ratings_srs`, `ratings_elo`, `ratings_core`, `records`, `stats_season_advanced`, `coaches` |
