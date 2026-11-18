@@ -78,11 +78,28 @@ not matched in 2018-2025 (+0.0002).
 - Lead-player absences are a few percent of team-games, and a 1-3 point effect is small
   against a 15.8-point residual SD.
 
-## Open options
+## Re-run with play-by-play stats (2026-11-18, `--plays-stats`)
 
-1. Re-run with CFBD `/plays/stats` (ingest approved 2026-11-18, other thread): true target
-   share and per-play participation would replace receptions and box-score lines. The
-   scripts take a new roles table; expected effect on the result: small.
-2. Extend the manual QB-out override (`cfb.model.qb_out`) to any player, using the per-share
-   points above. That works for known-out players (e.g. conference availability reports), with
-   the stated SEs.
+CFBD `/plays/stats` (table `plays_stats`, snapshot `cfbd_data_2014-2026_2026-11-18_playstats.tar`, PR #27):
+target share (Target + Reception rows) replaces reception share for WR/TE, and any plays_stats
+row also counts as presence. Run: `impact_players.py --plays-stats`, then `impact_select.py` and
+`impact_cases.py` with `--plays-stats`. Limits: intended receivers on incompletions are recorded
+on 19% (2024) to 95% (2026) of incompletions; no Tackle rows, so defenders are unchanged.
+Presence changed little: 3,818 player-games added to 671,443 box-score lines.
+
+| 2018-2025 | Reception share | Target share |
+| --- | --- | --- |
+| WR1 (>= 25%) new out | -1.75 (1.04), n 280 | -1.22 (1.00), n 307 |
+| TE (>= 15%) new out | -1.87 (0.93), n 336 | -0.98 (1.05), n 280 |
+| WR per 100% share | -4.12 (1.45) | -3.24 (1.44) |
+| TE per 100% share | -4.42 (2.72) | -3.77 (2.98) |
+| Best pregame variant (pass, yards, tackles) | -0.0003 (0.0005), 6/8 | -0.0003 (0.0005), 7/8 |
+
+Pregame variants still fail the rule (2026: best -0.0015, SE 0.0011, not matched in 2018-2025).
+A 40%-target receiver out: about 3.24 x 0.4 = 1.3 points (SE 0.6). Conclusion unchanged.
+
+## Open option
+
+Extend the manual QB-out override (`cfb.model.qb_out`) to any player, using the per-share
+points above. That works for known-out players (e.g. conference availability reports), with
+the stated SEs.

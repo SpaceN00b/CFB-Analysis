@@ -14,7 +14,7 @@ Parts:
   2. pregame: season-forward 2018-2025 log loss of model_v2 + d_prev columns (ridge, frozen
      lam), paired bootstrap over weeks; then 2026 (fit 2015-2025)
 
-    python scripts/impact_select.py
+    python scripts/impact_select.py [--plays-stats]
 """
 from __future__ import annotations
 
@@ -82,7 +82,12 @@ def ols(Z, y):
 
 def main():
     base = pd.read_parquet("data/exploration/impact_base.parquet")
-    roles = pd.read_parquet("data/exploration/impact_roles.parquet")
+    if "--plays-stats" in sys.argv:   # target share (plays_stats) in place of reception share
+        roles = pd.read_parquet("data/exploration/impact_roles_ps.parquet")
+        roles["sh_rec"] = roles["sh_tgt"]
+        print("roles with plays_stats: 'rec' = target share, presence = box-score line or plays_stats row")
+    else:
+        roles = pd.read_parquet("data/exploration/impact_roles.parquet")
     f = team_features(roles)
     names = [c for c in f.columns if c not in ("game_id", "team_id")]
     model_select.LAST_SEASON = 2026

@@ -6,9 +6,11 @@ Lead player = highest share at the position among the team's role players before
 "Missed last game" = no line in the previous game but a line in the one before (streak 1;
 known before kickoff); his status in this game is not used.
 
-    python scripts/impact_cases.py
+    python scripts/impact_cases.py [--plays-stats]
 """
 from __future__ import annotations
+
+import sys
 
 import numpy as np
 import pandas as pd
@@ -19,7 +21,12 @@ CASES = [("QB", "pass", 0.8), ("RB", "car", 0.4), ("WR", "rec", 0.25), ("TE", "r
 
 def main():
     base = pd.read_parquet("data/exploration/impact_base.parquet")
-    r = pd.read_parquet("data/exploration/impact_roles.parquet")
+    if "--plays-stats" in sys.argv:   # target share (plays_stats) in place of reception share
+        r = pd.read_parquet("data/exploration/impact_roles_ps.parquet")
+        r["sh_rec"] = r["sh_tgt"]
+        print("roles with plays_stats: 'rec' = target share, presence = box-score line or plays_stats row")
+    else:
+        r = pd.read_parquet("data/exploration/impact_roles.parquet")
     side = pd.concat([base.assign(team_id=base["home_id"], sgn=1.0), base.assign(team_id=base["away_id"], sgn=-1.0)])
     side["resid"] = side["sgn"] * (side["margin"] - side["pred"])
     print("margin residual vs model_v2 from the team's side, points (SE); n = team-games\n")

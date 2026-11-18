@@ -18,10 +18,17 @@ line in the next game (diagnostic only, -1 if none); `streak` = the
 number of consecutive team games, ending with the previous one, that he had no line.
 Position from the season roster (QB, RB, WR, TE, OL, DL, LB, DB, ST, other).
 
-    python scripts/impact_players.py
+With --plays-stats (CFBD /plays/stats, table `plays_stats`), adds `tgt` = Target + Reception
+rows / team total (target share; intended receivers on incompletions are recorded on 19-95%
+of incompletions depending on season, so this undercounts incomplete targets), and a player
+also counts as present in a game if he has any plays_stats row for his team (Tackle rows do
+not exist there, so defenders still rely on box-score lines). Writes impact_roles_ps.parquet.
+
+    python scripts/impact_players.py [--plays-stats]
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +38,8 @@ from cfb.core import Warehouse
 
 OUT = Path("data/exploration/impact_roles.parquet")
 MIN_GAMES = 2
-MIN_SHARE = 0.03   # keep rows with at least this share in some category
+MIN_SHARE = 0.03
+PS = False   # keep rows with at least this share in some category
 
 POS = {"QB": "QB", "RB": "RB", "FB": "RB", "WR": "WR", "TE": "TE",
        "OL": "OL", "OT": "OL", "G": "OL", "C": "OL", "OG": "OL",
@@ -70,9 +78,31 @@ def box_scores(root: Path) -> pd.DataFrame:
     w["ryd"] = w["rushing:YDS"] + w["receiving:YDS"]
     w["tkl"] = w["defensive:TOT"]
     w["dplay"] = w["defensive:TFL"] + w["defensive:SACKS"] + w["defensive:PD"] + w["interceptions:INT"]
-    w = appear.merge(w[["gameId", "homeAway", "athleteId"] + CATS], on=["gameId", "homeAway", "athleteId"],
-                     how="left").fillna({c: 0.0 for c in CATS})
+    box = [c for c in CATS if c != "tgt"]
+    w = appear.merge(w[["gameId", "homeAway", "athleteId"] + box], on=["gameId", "homeAway", "athleteId"],
+                     how="left").fillna({c: 0.0 for c in box})
     return w.drop(columns="season").rename(columns={"gameId": "game_id", "athleteId": "athlete"})
+
+
+def plays_stats_lines(root: Path, gi: pd.DataFrame) -> pd.DataFrame:
+    frames = []
+    for f in sorted((root / "tables" / "plays_stats").glob("*.parquet")):
+        d = pd.read_parquet(f)
+        if "gameId" in d:
+            frames.append(d[["gameId", "team", "athleteId", "statType", "playId"]])
+    d = pd.concat(frames, ignore_index=True)
+    d = d[d["athleteId"].notna() & (d["athleteId"].astype(str) != "")]
+    d["athleteId"] = d["athleteId"].astype(str)
+    names = pd.concat([gi[["game_id", "home_team"]].rename(columns={"home_team": "team"}).assign(homeAway="home"),
+                       gi[["game_id", "away_team"]].rename(columns={"away_team": "team"}).assign(homeAway="away")])
+    d = d.rename(columns={"gameId": "game_id"}).merge(names, on=["game_id", "team"])
+    d["tgt"] = d["statType"].isin(["Target", "Reception"]).astype(float)
+    # one target per play and receiver
+    t = d[d["tgt"] == 1].drop_duplicates(["playId", "athleteId"])
+    tg = t.groupby(["game_id", "homeAway", "athleteId"])["tgt"].sum()
+    out = d[["game_id", "homeAway", "athleteId"]].drop_duplicates().set_index(["game_id", "homeAway", "athleteId"])
+    out["tgt"] = tg.reindex(out.index).fillna(0.0)
+    return out.reset_index().rename(columns={"athleteId": "athlete"})
 
 
 def positions(root: Path) -> pd.DataFrame:
@@ -92,6 +122,12 @@ def main():
     gi = gi[gi["completed"]]
     root = Path("data")
     bs = box_scores(root)
+    if PS:
+        ps = plays_stats_lines(root, gi)
+        n0 = len(bs)
+        bs = bs.merge(ps, on=["game_id", "homeAway", "athlete"], how="outer")
+        bs[CATS] = bs[CATS].fillna(0.0)
+        print(f"plays_stats player-games {len(ps):,}; lines added beyond box scores {len(bs) - n0:,}", flush=True)
     side = pd.concat([
         gi[["game_id", "season", "start_time_utc", "home_id"]].rename(columns={"home_id": "team_id"}).assign(homeAway="home"),
         gi[["game_id", "season", "start_time_utc", "away_id"]].rename(columns={"away_id": "team_id"}).assign(homeAway="away"),
@@ -151,4 +187,8 @@ def main():
 
 
 if __name__ == "__main__":
+    PS = "--plays-stats" in sys.argv
+    if PS:
+        CATS.append("tgt")
+        OUT = OUT.with_name("impact_roles_ps.parquet")
     main()
