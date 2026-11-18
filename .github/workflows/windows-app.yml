@@ -1,0 +1,66 @@
+name: windows-app
+
+# Builds the packaged Windows app (PyInstaller + Inno Setup), smoke-tests it, and on main
+# publishes the installer as a GitHub Release tagged build-<run number>. The app's update
+# check (cfb.ui.update) compares its build number with the latest release.
+# The release holds code only: no data, no keys.
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/**", "packaging/**", "dashboard/**", "pyproject.toml", ".github/workflows/windows-app.yml"]
+  pull_request:
+    paths: ["src/cfb/ui/**", "src/cfb/settings.py", "packaging/**", "pyproject.toml", ".github/workflows/windows-app.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write   # create the release (main only)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install ".[ui,dev]" pyinstaller
+      - name: Stamp build number
+        shell: bash
+        run: printf 'BUILD = "%s"\nCOMMIT = "%s"\n' "${{ github.run_number }}" "${{ github.sha }}" > src/cfb/_build.py
+      - name: Build app
+        run: pyinstaller packaging/cfb_app.spec --noconfirm
+      - name: Smoke test
+        run: python packaging/smoke.py "dist/CFB Predictor/CFB Predictor.exe"
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) { choco install innosetup -y --no-progress | Out-Null; $env:Path += ";C:\Program Files (x86)\Inno Setup 6" }
+          iscc /DBuild=${{ github.run_number }} packaging\installer.iss
+      - name: Upload installer (workflow artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CFB-Predictor-Setup-build-${{ github.run_number }}
+          path: dist/CFB-Predictor-Setup-build-*.exe
+          retention-days: 14
+      - name: Publish release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "build-${{ github.run_number }}" dist/CFB-Predictor-Setup-build-*.exe \
+            --title "CFB Predictor build ${{ github.run_number }}" \
+            --notes "Windows installer built from ${{ github.sha }}. Install over the previous build; data and keys are kept." \
+            --target "${{ github.sha }}"

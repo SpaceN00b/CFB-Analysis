@@ -15,11 +15,14 @@ dependencies = ["requests>=2.31", "numpy>=1.26", "pandas>=3.0", "pyarrow>=15"]
 dev = ["pytest>=8"]
 # OS keyring for keys on a PC (Windows Credential Manager); cfb.settings.secret reads it.
 keyring = ["keyring>=25"]
+# Local app (cfb-ui): Streamlit UI over the report bundles and the warehouse.
+ui = ["streamlit>=1.67", "keyring>=25"]
 
 [project.scripts]
 cfb-ingest = "cfb.ingest:main"
 cfb-core = "cfb.core.build:main"
 cfb-features = "cfb.features.build:main"
+cfb-ui = "cfb.ui.launch:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

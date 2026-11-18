@@ -33,7 +33,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,ui]"
       # No data snapshot here: tests run on the synthetic store, and tests that need
       # the snapshot are skipped. `-rs` lists what was skipped.
       - name: Test
