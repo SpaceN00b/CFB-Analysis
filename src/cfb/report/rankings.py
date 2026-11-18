@@ -37,6 +37,8 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from .. import settings
+
 POLLS = (("ap", "AP Top 25", "AP"), ("coaches", "Coaches Poll", "Coaches"),
          ("cfp", "Playoff Committee Rankings", "CFP"))
 POLL_SIZE = 25
@@ -378,7 +380,7 @@ def _table(header, rows, align):
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cfb.rankings",
                                  description="Model top N vs AP, Coaches and CFP top 25, printed as Markdown.")
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=str(settings.data_dir()))
     ap.add_argument("--season", type=int)
     ap.add_argument("--week", type=int)
     ap.add_argument("--season-type", choices=("regular", "postseason"))

@@ -1,16 +1,18 @@
 """Minimal CollegeFootballData.com API client.
 
-Reads the key from the CFBD_API_KEY environment variable. If the variable is
-absent the request is sent without an Authorization header, which supports
-environments where a proxy injects the credential.
+The key comes from cfb.settings.secret("cfbd_api_key"): the CFBD_API_KEY environment
+variable, then the OS keyring (packaged app). If neither is set the request is sent
+without an Authorization header, which supports environments where a proxy injects
+the credential.
 """
 from __future__ import annotations
 
-import os
 import time
 from typing import Any
 
 import requests
+
+from . import settings
 
 BASE_URL = "https://api.collegefootballdata.com"
 RETRY_STATUS = {429, 500, 502, 503, 504}
@@ -31,7 +33,7 @@ class CFBDClient:
         timeout: float = 120.0,
         sleep=time.sleep,
     ):
-        self.api_key = api_key if api_key is not None else os.environ.get("CFBD_API_KEY")
+        self.api_key = api_key if api_key is not None else settings.secret("cfbd_api_key")
         self.base_url = base_url.rstrip("/")
         self.session = session or requests.Session()
         self.max_retries = max_retries

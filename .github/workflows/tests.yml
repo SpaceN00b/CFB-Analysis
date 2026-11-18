@@ -14,12 +14,17 @@ concurrency:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.11", "3.13"]
+        # The packaged app runs on Windows: one Windows cell catches path and encoding issues.
+        include:
+          - os: windows-latest
+            python-version: "3.13"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,7 +33,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install
-        run: pip install -e '.[dev]'
+        run: pip install -e ".[dev]"
       # No data snapshot here: tests run on the synthetic store, and tests that need
       # the snapshot are skipped. `-rs` lists what was skipped.
       - name: Test

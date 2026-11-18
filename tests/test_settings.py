@@ -1,0 +1,161 @@
+"""cfb.settings: path defaults (cloud vs packaged app), environment overrides, secrets."""
+from __future__ import annotations
+
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+from cfb import settings
+from cfb.client import CFBDClient
+
+ENV_VARS = ("CFB_DATA_DIR", "CFB_CONFIG", "CFB_WAREHOUSE_DIR", "CFB_PROJECT_FILES", "CFB_SNAPSHOT_DIR", "CFB_ASOF_ARCHIVE",
+            *settings.SECRET_ENV.values())
+
+
+@pytest.fixture(autouse=True)
+def clean_env(monkeypatch, tmp_path):
+    for v in ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    # No real project files mount and no real keyring in these tests.
+    monkeypatch.setenv("CFB_PROJECT_FILES", str(tmp_path / "no-mount"))
+    monkeypatch.setattr(settings, "_keyring", lambda: None)
+    monkeypatch.delattr(sys, "frozen", raising=False)
+
+
+def freeze(monkeypatch, bundle: Path | None = None):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    if bundle is not None:
+        monkeypatch.setattr(sys, "_MEIPASS", str(bundle), raising=False)
+
+
+def test_source_checkout_defaults_match_previous_behaviour():
+    assert settings.data_dir() == Path("data")
+    assert settings.project_files() is None
+    assert settings.snapshot_dir() is None
+    assert settings.asof_archive() is None
+
+
+def test_project_files_mount_gives_snapshot_and_archive(monkeypatch, tmp_path):
+    pf = tmp_path / "pf"
+    (pf / "cfbd-data" / "asof").mkdir(parents=True)
+    monkeypatch.setenv("CFB_PROJECT_FILES", str(pf))
+    assert settings.snapshot_dir() == pf / "cfbd-data"
+    assert settings.asof_archive() == pf / "cfbd-data" / "asof"
+
+
+def test_archive_is_none_when_folder_missing(monkeypatch, tmp_path):
+    pf = tmp_path / "pf"
+    (pf / "cfbd-data").mkdir(parents=True)
+    monkeypatch.setenv("CFB_PROJECT_FILES", str(pf))
+    assert settings.asof_archive() is None
+
+
+def test_env_overrides(monkeypatch, tmp_path):
+    monkeypatch.setenv("CFB_DATA_DIR", str(tmp_path / "d"))
+    monkeypatch.setenv("CFB_SNAPSHOT_DIR", str(tmp_path / "s"))
+    monkeypatch.setenv("CFB_ASOF_ARCHIVE", str(tmp_path / "a"))
+    monkeypatch.setenv("CFB_CONFIG", str(tmp_path / "c.toml"))
+    assert settings.data_dir() == tmp_path / "d"
+    assert settings.snapshot_dir() == tmp_path / "s"
+    assert settings.asof_archive() == tmp_path / "a"
+    assert settings.config_path() == tmp_path / "c.toml"
+
+
+def test_frozen_app_uses_user_folders(monkeypatch, tmp_path):
+    freeze(monkeypatch)
+    monkeypatch.setattr(settings, "user_data_root", lambda: tmp_path / "local" / "cfb")
+    assert settings.data_dir() == tmp_path / "local" / "cfb" / "data"
+    assert settings.warehouse_dir() == tmp_path / "local" / "cfb" / "warehouse"
+
+
+def test_windows_folders(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    assert settings.user_data_root() == tmp_path / "Local" / "cfb"
+    assert settings.user_config_root() == tmp_path / "Roaming" / "cfb"
+
+
+def test_config_path_order(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    bundle = tmp_path / "bundle"
+    (bundle / "dashboard").mkdir(parents=True)
+    (bundle / "dashboard" / "config.toml").write_text("", encoding="utf-8")
+    user = tmp_path / "user"
+    monkeypatch.setattr(settings, "user_config_root", lambda: user)
+
+    # Not frozen, no repo file: the repo path (load_config then uses defaults).
+    assert settings.config_path() == settings.REPO_CONFIG
+    # Frozen: the bundled copy, then the repo file, then the user's file win in turn.
+    freeze(monkeypatch, bundle)
+    assert settings.config_path() == bundle / "dashboard" / "config.toml"
+    (tmp_path / "dashboard").mkdir()
+    (tmp_path / "dashboard" / "config.toml").write_text("", encoding="utf-8")
+    assert settings.config_path() == settings.REPO_CONFIG
+    user.mkdir()
+    (user / "config.toml").write_text("", encoding="utf-8")
+    assert settings.config_path() == user / "config.toml"
+
+
+class FakeKeyring:
+    def __init__(self):
+        self.store = {}
+
+    def get_password(self, service, name):
+        return self.store.get((service, name))
+
+    def set_password(self, service, name, value):
+        self.store[(service, name)] = value
+
+    def delete_password(self, service, name):
+        self.store.pop((service, name))
+
+
+def test_secret_env_then_keyring(monkeypatch):
+    kr = FakeKeyring()
+    monkeypatch.setattr(settings, "_keyring", lambda: kr)
+    assert settings.secret("cfbd_api_key") is None
+    settings.set_secret("cfbd_api_key", "from-keyring")
+    assert settings.secret("cfbd_api_key") == "from-keyring"
+    monkeypatch.setenv("CFBD_API_KEY", "from-env")
+    assert settings.secret("cfbd_api_key") == "from-env"
+    monkeypatch.delenv("CFBD_API_KEY")
+    settings.delete_secret("cfbd_api_key")
+    assert settings.secret("cfbd_api_key") is None
+
+
+def test_secret_survives_broken_keyring(monkeypatch):
+    broken = types.SimpleNamespace(get_password=lambda *a: (_ for _ in ()).throw(RuntimeError("no backend")))
+    monkeypatch.setattr(settings, "_keyring", lambda: broken)
+    assert settings.secret("r2_bucket") is None
+
+
+def test_set_secret_needs_keyring_and_known_name():
+    with pytest.raises(RuntimeError):
+        settings.set_secret("cfbd_api_key", "x")
+    with pytest.raises(KeyError):
+        settings.set_secret("not_a_secret", "x")
+
+
+def test_client_key_resolution(monkeypatch):
+    assert CFBDClient().api_key is None  # cloud: the proxy injects the key
+    monkeypatch.setenv("CFBD_API_KEY", "k1")
+    assert CFBDClient().api_key == "k1"
+    assert CFBDClient(api_key="explicit").api_key == "explicit"
+
+
+def test_run_week_snapshot_defaults(monkeypatch, tmp_path):
+    from cfb import run_week
+
+    assert run_week.default_snapshot() is None
+    snap = tmp_path / "snap"
+    snap.mkdir()
+    (snap / "a.tar").write_bytes(b"")
+    (snap / "f.tar").write_bytes(b"")
+    (snap / "LATEST").write_text("a.tar\n", encoding="utf-8")
+    (snap / "FEATURES_LATEST").write_text("f.tar", encoding="utf-8")
+    monkeypatch.setenv("CFB_SNAPSHOT_DIR", str(snap))
+    assert run_week.default_snapshot() == snap / "a.tar"
+    assert run_week.default_features_snapshot() == snap / "f.tar"

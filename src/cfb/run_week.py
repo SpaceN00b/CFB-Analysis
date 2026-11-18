@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import tarfile
@@ -39,20 +38,18 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import settings
 from .core.asof import Warehouse
 from .core.build import build_core
 from .core.schemas import read_predictions, validate_metrics, validate_predictions
 from .eval.metrics import evaluate
 from .eval.splits import write_weekly
 from .report.bundle import build_bundle, write_bundle
-from .report.config import DEFAULT_CONFIG, ReportConfig, load_config
+from .report.config import ReportConfig, load_config
 from .report.html import render_dashboard
 from .report.markdown import render_markdown
 from .report.slate import Slate, known_results, resolve_slate
 
-PROJECT_FILES = Path("/mnt/project-files")
-DEFAULT_ARCHIVE = PROJECT_FILES / "cfbd-data" / "asof"
-DEFAULT_SNAPSHOT_DIR = PROJECT_FILES / "cfbd-data"
 
 
 @dataclass
@@ -71,9 +68,12 @@ def log(msg: str) -> None:
 # ---- steps --------------------------------------------------------------------------------
 
 def default_snapshot() -> Path | None:
-    latest = DEFAULT_SNAPSHOT_DIR / "LATEST"
+    snap = settings.snapshot_dir()
+    if snap is None:
+        return None
+    latest = snap / "LATEST"
     if latest.exists():
-        p = DEFAULT_SNAPSHOT_DIR / latest.read_text().strip()
+        p = snap / latest.read_text().strip()
         return p if p.exists() else None
     return None
 
@@ -111,9 +111,12 @@ def refresh(data_dir: Path, season: int, archive: Path | None, now: datetime) ->
 
 
 def default_features_snapshot() -> Path | None:
-    latest = DEFAULT_SNAPSHOT_DIR / "FEATURES_LATEST"
+    snap = settings.snapshot_dir()
+    if snap is None:
+        return None
+    latest = snap / "FEATURES_LATEST"
     if latest.exists():
-        p = DEFAULT_SNAPSHOT_DIR / latest.read_text().strip()
+        p = snap / latest.read_text().strip()
         return p if p.exists() else None
     return None
 
@@ -367,8 +370,8 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cfb.run_week", description=__doc__.split("\n")[0])
-    ap.add_argument("--data-dir", default="data")
-    ap.add_argument("--config", default=None, help=f"run configuration (default {DEFAULT_CONFIG})")
+    ap.add_argument("--data-dir", default=str(settings.data_dir()))
+    ap.add_argument("--config", default=None, help=f"run configuration (default {settings.config_path()})")
     ap.add_argument("--season", type=int)
     ap.add_argument("--week", type=int)
     ap.add_argument("--season-type", choices=("regular", "postseason"))
@@ -378,8 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--refresh", dest="refresh", action="store_true", default=None,
                    help="pull the season from the API (default for the current season)")
     g.add_argument("--no-refresh", dest="refresh", action="store_false")
-    ap.add_argument("--asof-archive", default=os.environ.get("CFB_ASOF_ARCHIVE")
-                    or (str(DEFAULT_ARCHIVE) if DEFAULT_ARCHIVE.exists() else None),
+    ap.add_argument("--asof-archive", default=str(settings.asof_archive() or "") or None,
                     help="dated rating copies folder (default $CFB_ASOF_ARCHIVE or the project files archive)")
     ap.add_argument("--allow-no-archive", action="store_true")
     ap.add_argument("--snapshot", default=None, help="tar to restore when the data dir is empty "
