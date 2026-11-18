@@ -77,6 +77,50 @@ Notes:
 - `/stats/player/success/game` answers about one request per 12 seconds and refuses concurrent
   requests (HTTP 429 "Too many concurrent requests for this endpoint"); pull it in one process.
 
+## Per-play player attribution (`plays_stats`, 2026-11-18)
+
+`/plays/stats?gameId=`: one row per play, athlete and stat type, for every completed FBS game
+(FBS vs FCS included). Columns: `gameId`, `driveId`, `playId` (string, joins to `plays.id`),
+`period`, `clock.minutes`, `clock.seconds`, `down`, `distance`, `yardsToGoal`, `team`,
+`opponent`, `teamScore`, `opponentScore`, `athleteId` (string, matches `roster.id`),
+`athleteName`, `statType`, `stat`, plus `season`, `week`, `season_type`. Access policy GAME.
+
+Pulled one request per game (the endpoint caps a response at 2,000 rows; games return about
+150 to 320). Stored one partition per ended week (key `2025_regular_10`). A cached week is never
+pulled again, even with `--force`, so the weekly run costs about 60 calls. A game completed
+after its calendar week ended is not picked up (none seen). First full pull 2026-11-18:
+11,151 calls, 0 failures, 2,651,762 rows, 2014 to 2026 week 11.
+
+| Season | Rows | Games | Completed games | FBS vs FBS games without rows | Target / Incompletion | Reception / Completion |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2014 | 175,800 | 851 | 868 | 14 | 0.683 | 0.967 |
+| 2015 | 212,634 | 863 | 870 | 7 | 0.697 | 0.975 |
+| 2016 | 223,797 | 857 | 873 | 13 | 0.705 | 0.990 |
+| 2017 | 225,593 | 869 | 874 | 4 | 0.709 | 0.999 |
+| 2018 | 225,032 | 881 | 884 | 2 | 0.711 | 0.996 |
+| 2019 | 224,465 | 887 | 888 | 1 | 0.701 | 0.981 |
+| 2020 | 138,172 | 568 | 568 | 0 | 0.708 | 0.987 |
+| 2021 | 195,534 | 887 | 887 | 0 | 0.491 | 0.938 |
+| 2022 | 208,273 | 896 | 896 | 0 | 0.446 | 0.991 |
+| 2023 | 203,055 | 910 | 910 | 0 | 0.373 | 0.997 |
+| 2024 | 204,138 | 919 | 919 | 0 | 0.187 | 0.999 |
+| 2025 | 226,358 | 934 | 934 | 0 | 0.897 | 0.988 |
+| 2026 | 188,911 | 752 | 755 | 3 (week 12, not ended) | 0.952 | 1.000 |
+
+Notes:
+
+- `Target` rows name the intended receiver on incompletions only; completions carry a
+  `Reception` row instead. Targets = `Reception` + `Target` rows. The intended receiver is
+  missing on a share of incompletions that varies by season (table) and by game (0% to 100%),
+  so incomplete targets are undercounted, most in 2021 to 2024.
+- Stat types seen: Rush, Completion, Reception, Incompletion, Target, Touchdown, Sack, Sack Taken,
+  QB Hurry, Pass Breakup, Interception, Interception Thrown, Fumble, Fumble Forced, Fumble
+  Recovered, punt, kickoff and field-goal types. `Tackle` exists in `/plays/stats/types` but has
+  0 rows in every season.
+- 63 rows in 5 games repeat a (`playId`, `athleteId`, `statType`) key with `team` and `opponent`
+  swapped (the API credits the player to both teams). Keep the row whose `team` matches the
+  player's roster team.
+
 ## When a row is known
 
 Feature code must respect these. The cutoff rule is in the build plan.
