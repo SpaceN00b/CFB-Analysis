@@ -26,6 +26,7 @@ import sys
 
 import pandas as pd
 
+from .. import settings
 from ..core.asof import Warehouse
 from ..core.schemas import read_predictions, write_metrics
 from ..features.build import open_warehouse, parse_seasons
@@ -155,7 +156,7 @@ def cmd_points(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cfb.eval", description=__doc__.split("\n")[0])
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=str(settings.data_dir()))
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("baselines", help="write and score the four baselines")
     b.add_argument("--seasons", help="seasons to predict, default 2018-2026")

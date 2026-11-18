@@ -28,6 +28,7 @@ from typing import Callable
 
 import pandas as pd
 
+from . import settings
 from .client import CFBDClient, CFBDError
 from .store import Store, flatten
 
@@ -361,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--start", type=int, default=2014)
     ap.add_argument("--end", type=int, default=2026)
     ap.add_argument("--only", default="", help="comma-separated dataset names")
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=str(settings.data_dir()))
     ap.add_argument("--force", action="store_true", help="re-download cached pulls")
     ap.add_argument("--list", action="store_true", help="list dataset names and exit")
     ap.add_argument("--coverage", action="store_true", help="print rows per dataset and season, then exit")

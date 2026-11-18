@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from . import settings
 from .core.asof import Warehouse
 from .core.schemas import reasons_json
 from .core.timeutil import as_utc
@@ -220,7 +221,7 @@ def matchup(warehouse: Warehouse, home: str, away: str, neutral: bool = False, c
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cfb.predict", description=__doc__.split("\n")[0])
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=str(settings.data_dir()))
     ap.add_argument("--model", default=C.MODEL_ID, choices=sorted(C.MODELS))
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("season-forward", help="2018-2025, refit once per season")

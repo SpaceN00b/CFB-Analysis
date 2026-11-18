@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .. import settings
 from ..store import Store
 from .game_index import build_game_index, build_game_pregame, build_teams, build_weeks
 from .pbp import build_pbp, load_raw_plays
@@ -81,7 +82,7 @@ def check(tables: dict[str, pd.DataFrame]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=str(settings.data_dir()))
     ap.add_argument("--check", action="store_true", help="build in memory and report, without writing")
     args = ap.parse_args(argv)
     tables = build_core(args.data_dir, write=not args.check)

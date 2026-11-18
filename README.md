@@ -36,6 +36,14 @@ python -m cfb.features.build   # unit_ratings and every feature group
 pytest                         # snapshot tests are skipped when data/ is absent
 ```
 
+Paths and keys come from `cfb.settings` (`src/cfb/settings.py`). Defaults are the values
+above: data dir `data`, run config `dashboard/config.toml`, snapshots and the dated-copy archive
+under `/mnt/project-files/cfbd-data` when that folder exists. The packaged Windows app uses
+`%LOCALAPPDATA%\cfb` and `%APPDATA%\cfb` instead. Overrides: `CFB_DATA_DIR`, `CFB_CONFIG`,
+`CFB_PROJECT_FILES`, `CFB_SNAPSHOT_DIR`, `CFB_ASOF_ARCHIVE`, `CFB_WAREHOUSE_DIR`. Keys
+(`CFBD_API_KEY`, `R2_*`) are read from the environment first, then from the OS keyring
+(Windows Credential Manager) with `pip install -e '.[keyring]'`.
+
 Other commands:
 
 ```bash

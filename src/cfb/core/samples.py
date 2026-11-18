@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .. import settings
 from .asof import Warehouse
 from .schemas import METRICS_SCHEMA_VERSION, reasons_json, write_metrics, write_predictions
 
@@ -111,7 +112,7 @@ def write_samples(warehouse: Warehouse, out_dir: str | Path, season: int, weeks:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=str(settings.data_dir()))
     ap.add_argument("--out", default="samples")
     ap.add_argument("--season", type=int, default=2025)
     ap.add_argument("--weeks", default="1,2")

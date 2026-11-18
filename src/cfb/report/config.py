@@ -10,6 +10,7 @@ from typing import Callable
 
 import pandas as pd
 
+from .. import settings
 from ..core.schemas import MODEL_ID, SchemaError
 
 DEFAULT_CONFIG = Path("dashboard") / "config.toml"
@@ -77,7 +78,7 @@ class ReportConfig:
 def load_config(path: str | Path | None = None, **overrides) -> ReportConfig:
     """Read the TOML file (missing file: defaults) and apply keyword overrides."""
     values: dict = {}
-    p = Path(path) if path is not None else DEFAULT_CONFIG
+    p = Path(path) if path is not None else settings.config_path()
     if p.exists():
         doc = tomllib.loads(p.read_text(encoding="utf-8"))
         models, run = doc.get("models", {}), doc.get("run", {})

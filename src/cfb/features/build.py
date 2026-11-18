@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .. import settings
 from ..core import unit_ratings as ur
 from ..core.asof import CORE_TABLES, Warehouse
 from ..core.build import build_core
@@ -100,7 +101,7 @@ def build_features(warehouse: Warehouse, groups: list[FeatureGroup], seasons: li
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=str(settings.data_dir()))
     ap.add_argument("--seasons", default="", help="e.g. 2024-2026 or 2019,2021 (default: all)")
     ap.add_argument("--groups", default="", help="comma-separated group names (default: all)")
     ap.add_argument("--list", action="store_true", help="print the feature catalog and exit")
