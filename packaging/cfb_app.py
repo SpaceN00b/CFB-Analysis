@@ -20,11 +20,17 @@ def selftest() -> int:
     from cfb.ui import data, launch, pages, update  # noqa: F401
     import cfb.predict  # noqa: F401
 
+    try:
+        from cfb import warehouse_sync  # noqa: F401  (R2 sync; present once that step is merged)
+        import boto3  # noqa: F401  (S3 backend used on the PC)
+        sync_ok = "yes"
+    except ImportError as exc:
+        sync_ok = f"no ({exc.name})"
     groups = discover_groups()
     cfg = load_config()
     app = launch.app_path()
     print(f"groups={len(groups)} models={sorted(C.MODELS)} primary={cfg.primary} "
-          f"config={settings.config_path()} app={app} build={update.current_build()}")
+          f"config={settings.config_path()} app={app} build={update.current_build()} sync={sync_ok}")
     if not app.exists() or not groups:
         print("selftest failed", file=sys.stderr)
         return 1

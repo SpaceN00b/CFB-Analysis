@@ -213,15 +213,24 @@ def page_data():
     if warehouse_sync is None:
         st.info("Sync from the cloud database is not in this version yet.")
     elif st.button("Sync now", type="primary"):
+        log_box = st.empty()
+        lines: list[str] = []
+
+        def log(msg: str) -> None:
+            lines.append(str(msg))
+            log_box.code("\n".join(lines[-12:]))
+
         with st.spinner("Downloading changed files…"):
             try:
-                warehouse_sync.sync(settings.warehouse_dir())
+                store = warehouse_sync.open_store(warehouse_sync.r2_settings())
+                warehouse_sync.sync(settings.warehouse_dir(), store, log=log)
             except Exception as exc:
-                st.error(f"Sync failed: {exc}")
+                st.error(f"Sync failed: {exc}. Check the R2 keys on the Settings page "
+                         "(r2_account_id, r2_access_key_id, r2_secret_access_key).")
             else:
                 st.cache_data.clear()
                 st.cache_resource.clear()
-                st.success("Up to date.")
+                st.success("Up to date. Reload a page to see the new data.")
 
 
 def page_settings():
@@ -229,7 +238,9 @@ def page_settings():
     st.write(f"Config file: `{settings.config_path()}`")
     st.write(f"Warehouse folder: `{settings.warehouse_dir()}`")
     st.subheader("Keys")
-    st.caption("Stored in Windows Credential Manager. Values are never shown.")
+    st.caption("Stored in Windows Credential Manager. Values are never shown. To sync the database the PC "
+               "needs r2_account_id, r2_access_key_id and r2_secret_access_key (the read-only R2 token); "
+               "r2_bucket defaults to cfb-warehouse. The CFBD key is not needed on the PC.")
     rows = [{"key": n, "set": settings.secret(n) is not None} for n in settings.SECRET_ENV]
     st.dataframe(pd.DataFrame(rows), hide_index=True)
     with st.form("set_key", clear_on_submit=True):
