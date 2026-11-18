@@ -1,0 +1,508 @@
+<title>SEC Player Maps</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@600&display=swap">
+<style>
+/* Layout: one working column; a sortable roster table beside a selected-player panel
+   (stacks on phones). Field grids are drawn top-down with the offense moving up the page.
+   Tokens follow the weekly report dashboard (cfb.report templates). */
+:root {
+  --page: #f9f9f7; --surface-1: #fcfcfb; --surface-2: #f3f2ee;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #6f6d68;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6; --on-accent: #ffffff; --good: #006300; --bad: #b42323; --warn: #8a5a00;
+  --div-pos: #2a78d6; --div-neg: #e34948; --div-mid: #f0efec;
+  --turf: #e9efe6; --turf-line: #c9d6c3;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-head: "Space Grotesk", "Inter", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #242423;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a988f;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --accent: #3987e5; --on-accent: #ffffff; --good: #0ca30c; --bad: #e66767; --warn: #d9a13a;
+    --div-pos: #3987e5; --div-neg: #e66767; --div-mid: #383835;
+    --turf: #18201a; --turf-line: #2c3a2e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #242423;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a988f;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --accent: #3987e5; --on-accent: #ffffff; --good: #0ca30c; --bad: #e66767; --warn: #d9a13a;
+  --div-pos: #3987e5; --div-neg: #e66767; --div-mid: #383835;
+  --turf: #18201a; --turf-line: #2c3a2e;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--text-primary); margin: 0;
+  font: 14px/1.45 var(--font-ui); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 20px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header h1 { font: 650 24px/1.2 var(--font-head); margin: 0 0 4px; text-wrap: balance; }
+header .sub { color: var(--text-secondary); font-size: 13px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 16px 0 0; }
+.controls label { color: var(--text-secondary); font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
+select { font: inherit; color: var(--text-primary); background: var(--surface-1);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 5px 8px; max-width: 100%; }
+nav { display: flex; gap: 4px; margin: 14px 0 14px; border-bottom: 1px solid var(--grid); overflow-x: auto; }
+nav button { appearance: none; border: 0; background: none; color: var(--text-secondary); font: inherit;
+  padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+nav button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); font-weight: 600; }
+button:focus-visible, select:focus-visible, tr.row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+.card h2 { font: 600 16px/1.3 var(--font-head); margin: 0 0 4px; }
+.card h3 { font-size: 13px; margin: 14px 0 6px; font-weight: 600; color: var(--text-secondary); }
+.hint { color: var(--text-muted); font-size: 12px; margin: 0 0 10px; }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 4px 0 2px; }
+.fact .k { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.fact .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fact .d { color: var(--text-secondary); font-size: 12px; }
+.table-scroll { overflow-x: auto; max-height: 640px; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--text-secondary); font-weight: 600; font-size: 12px; white-space: nowrap; position: sticky; top: 0; background: var(--surface-1); z-index: 1; }
+th.sortable { cursor: pointer; }
+th.sortable::after { content: " \2195"; color: var(--text-muted); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.row-link { cursor: pointer; }
+tr.row-link:hover td { background: var(--surface-2); }
+tr.sel td { background: var(--surface-2); box-shadow: inset 0 0 0 0 transparent; }
+tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.muted { color: var(--text-muted); }
+.small { font-size: 12px; }
+.pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--axis);
+  color: var(--text-secondary); white-space: nowrap; }
+.pill.flag { border-color: var(--bad); color: var(--bad); font-weight: 600; }
+.pill.watch { border-color: var(--warn); color: var(--warn); }
+.pill.ok { border-color: var(--good); color: var(--good); }
+.pill.info { border-color: var(--accent); color: var(--accent); }
+.verdict { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 15px; font-weight: 600; margin: 2px 0 8px; }
+.grids { display: flex; flex-wrap: wrap; gap: 16px; }
+.grids > div { min-width: 0; flex: 1 1 280px; }
+svg { display: block; max-width: 100%; height: auto; }
+svg text { fill: var(--text-muted); font-size: 11px; font-family: var(--font-ui); }
+svg text.cell { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.bars { display: grid; grid-template-columns: minmax(90px, 150px) 1fr 48px; gap: 6px 10px; align-items: center; font-size: 12px; }
+.bar-track { position: relative; height: 10px; background: var(--surface-2); border-radius: 4px; }
+.bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; }
+.bars .num { text-align: right; font-variant-numeric: tabular-nums; }
+.dir-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.dir-tile { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--surface-1); }
+.dir-tile .k { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.dir-tile .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dir-tile .d { font-size: 12px; color: var(--text-secondary); }
+.chip { display: inline-block; min-width: 56px; padding: 2px 6px; border-radius: 4px; text-align: center; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--text-secondary); margin: 6px 0; align-items: center; }
+.legend .sw { display: inline-block; width: 28px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; }
+.tooltip { position: fixed; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0,0,0,.14); border-radius: 8px; padding: 8px 10px; font-size: 12px; max-width: 260px; z-index: 20; }
+.prose { max-width: 72ch; }
+.prose p, .prose li { color: var(--text-secondary); }
+.prose h3 { color: var(--text-primary); font-size: 14px; margin: 18px 0 4px; }
+details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 520px) { .dir-tiles { grid-template-columns: 1fr; } .bars { grid-template-columns: 90px 1fr 42px; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1 id="title">SEC Player Maps</h1>
+    <div class="sub" id="subtitle"></div>
+    <div class="controls">
+      <label for="team">Team <select id="team"></select></label>
+      <span class="small muted" id="teamnote"></span>
+    </div>
+  </header>
+  <nav role="tablist" id="tabs">
+    <button role="tab" data-tab="defense" aria-selected="true">Defense</button>
+    <button role="tab" data-tab="offense" aria-selected="false">Offense</button>
+    <button role="tab" data-tab="rbs" aria-selected="false">Running backs</button>
+    <button role="tab" data-tab="receiving" aria-selected="false">Receivers &amp; QB</button>
+    <button role="tab" data-tab="method" aria-selected="false">Method</button>
+  </nav>
+  <main>
+    <section id="tab-defense" class="stack"></section>
+    <section id="tab-offense" class="stack" hidden></section>
+    <section id="tab-rbs" class="stack" hidden></section>
+    <section id="tab-receiving" class="stack" hidden></section>
+    <section id="tab-method" class="stack" hidden></section>
+  </main>
+  <footer id="foot"></footer>
+</div>
+<div class="tooltip" id="tip" hidden></div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const DIRS = ["left", "middle", "right"];
+const DIR_LABEL = {left: "Off. left", middle: "Middle", right: "Off. right"};
+const DEF_ROWS = ["Deep 16+", "Mid 8-15", "Short 3-7", "Line 0-2", "Backfield"];
+const TGT_ROWS = ["Deep 20+", "Inter 10-19", "Short 1-9", "Behind LOS"];
+const RUSH_ROWS = ["10+", "4-9", "1-3", "Loss/0"];
+const state = { team: null, tab: "defense", sel: {}, sort: {} };
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pct = (x, d = 0) => x == null ? "\u2013" : (x * 100).toFixed(d) + "%";
+const num = (x, d = 1) => x == null ? "\u2013" : Number(x).toFixed(d);
+const sgn = (x, d = 1) => x == null ? "\u2013" : (x > 0 ? "+" : "") + Number(x).toFixed(d);
+const pp = x => x == null ? "\u2013" : sgn(x * 100, 0) + " pts";
+
+function seqFill(share) {
+  const p = Math.round(8 + 80 * Math.max(0, Math.min(1, share)));
+  return `color-mix(in oklab, var(--accent) ${p}%, var(--surface-2))`;
+}
+function divFill(v, scale) {
+  if (v == null) return "var(--surface-2)";
+  const t = Math.max(-1, Math.min(1, v / scale));
+  const p = Math.round(Math.abs(t) * 80);
+  return `color-mix(in oklab, var(${t >= 0 ? "--div-pos" : "--div-neg"}) ${p}%, var(--div-mid))`;
+}
+
+// Top-down field grid: rows top to bottom (downfield first), three lanes, LOS drawn above `losRow`.
+function fieldGrid({rows, value, text, tip, losRow, note}) {
+  const W = 340, L = 84, T = 24, cw = (W - L - 8) / 3, rh = 40, H = T + rows.length * rh + 26;
+  let max = 0;
+  rows.forEach(r => DIRS.forEach(c => { max = Math.max(max, value(r, c) || 0); }));
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(note || "field grid")}">`;
+  s += `<rect x="${L}" y="${T}" width="${cw * 3}" height="${rows.length * rh}" rx="6" style="fill:var(--turf)"/>`;
+  DIRS.forEach((c, j) => { s += `<text x="${L + cw * j + cw / 2}" y="${T - 8}" text-anchor="middle">${DIR_LABEL[c]}</text>`; });
+  rows.forEach((r, i) => {
+    const y = T + i * rh;
+    s += `<text x="${L - 8}" y="${y + rh / 2 + 4}" text-anchor="end">${esc(r)}</text>`;
+    DIRS.forEach((c, j) => {
+      const v = value(r, c) || 0, share = max ? v / max : 0;
+      const x = L + cw * j;
+      s += `<rect x="${x + 2}" y="${y + 2}" width="${cw - 4}" height="${rh - 4}" rx="4" style="fill:${v ? seqFill(share) : "transparent"}" data-tip="${esc(tip(r, c))}"/>`;
+      const t = text(r, c);
+      if (t) s += `<text class="cell" x="${x + cw / 2}" y="${y + rh / 2 + 4}" text-anchor="middle" style="fill:${share > 0.55 ? "var(--on-accent)" : "var(--text-primary)"};pointer-events:none">${esc(t)}</text>`;
+    });
+  });
+  if (losRow != null) {
+    const y = T + losRow * rh;
+    s += `<line x1="${L - 4}" x2="${L + cw * 3 + 4}" y1="${y}" y2="${y}" style="stroke:var(--text-secondary);stroke-width:2;stroke-dasharray:5 4"/>`;
+    s += `<text x="${L - 8}" y="${y + 4}" text-anchor="end" style="font-size:10px;font-weight:600;fill:var(--text-secondary)">LOS</text>`;
+  }
+  s += `<text x="${L}" y="${H - 6}">offense moving up the page \u2191</text></svg>`;
+  return s;
+}
+
+function bars(entries, fmt = v => pct(v)) {
+  const max = Math.max(...entries.map(e => e[1] || 0), 0.0001);
+  return `<div class="bars">` + entries.map(([k, v]) =>
+    `<div>${esc(k)}</div><div class="bar-track"><div class="bar-fill" style="width:${(100 * (v || 0) / max).toFixed(1)}%"></div></div><div class="num">${fmt(v)}</div>`
+  ).join("") + `</div>`;
+}
+
+// Sortable table. cols: [{k, label, num, fmt, sortv}]
+function table(id, rows, cols, opts = {}) {
+  const st = state.sort[id] || {k: opts.sortKey, dir: opts.sortDir || -1};
+  const col = cols.find(c => c.k === st.k);
+  if (col) {
+    const sv = col.sortv || (r => r[col.k]);
+    rows = rows.slice().sort((a, b) => {
+      const x = sv(a), y = sv(b);
+      if (x == null) return 1; if (y == null) return -1;
+      return (x > y ? 1 : x < y ? -1 : 0) * st.dir;
+    });
+  }
+  let h = `<div class="table-scroll"><table id="${id}"><thead><tr>` + cols.map(c =>
+    `<th class="sortable${c.num ? " num" : ""}" data-table="${id}" data-k="${c.k}" scope="col">${esc(c.label)}</th>`).join("") + `</tr></thead><tbody>`;
+  for (const r of rows) {
+    const sel = opts.selKey && opts.selected === r[opts.selKey];
+    h += `<tr${opts.onSel ? ` class="row-link${sel ? " sel" : ""}" tabindex="0" data-sel="${id}" data-val="${esc(r[opts.selKey])}"` : ""}>` +
+      cols.map(c => `<td${c.num ? ' class="num"' : ""}>${c.fmt ? c.fmt(r[c.k], r) : esc(r[c.k])}</td>`).join("") + `</tr>`;
+  }
+  if (!rows.length) h += `<tr><td colspan="${cols.length}" class="muted">No players meet the minimum for this team.</td></tr>`;
+  return h + `</tbody></table></div>`;
+}
+const selHandlers = {};
+
+// ---------------------------------------------------------------- Defense
+function renderDefense() {
+  const m = DATA.defense.model, f = m.fine, c = m.coarse;
+  const rows = DATA.defense.players.filter(p => p.team === state.team);
+  if (!rows.find(p => p.athlete_id === state.sel.def)) state.sel.def = rows.length ? rows.slice().sort((a, b) => b.events - a.events)[0].athlete_id : null;
+  const p = rows.find(r => r.athlete_id === state.sel.def);
+  const conf = f.labels.map(l => `<tr><th scope="row">${esc(l)}</th>` + f.labels.map(k => `<td class="num">${(f.confusion[l] || {})[k] ?? 0}</td>`).join("") + `</tr>`).join("");
+  let h = `<div class="card"><h2>Role model, tested on SEC defenders it never saw</h2>
+    <p class="hint">Trained on ${f.n_train.toLocaleString()} non-SEC FBS defender-seasons (2025 week 9 on and 2026), from where each one is credited with tackles, sacks, hurries, breakups and interceptions. Scored against listed positions.</p>
+    <div class="facts">
+      <div class="fact"><div class="k">5 roles</div><div class="v">${pct(f.acc)}</div><div class="d">correct on ${f.n_test} SEC players; guessing the most common role: ${pct(f.baseline)}</div></div>
+      <div class="fact"><div class="k">3 groups (DL / LB / DB)</div><div class="v">${pct(c.acc)}</div><div class="d">correct on ${c.n_test}; most common group: ${pct(c.baseline)}</div></div>
+    </div>
+    <details><summary>Listed role (rows) against model role (columns)</summary><div class="table-scroll"><table><thead><tr><th></th>${f.labels.map(l => `<th class="num">${esc(l)}</th>`).join("")}</tr></thead><tbody>${conf}</tbody></table></div>
+    <p class="hint">Edge and interior linemen are the weak spot: 3-4 outside linebackers and stand-up ends are often listed as LB or DL, and many make plays where off-ball linebackers do.</p></details></div>`;
+  h += `<div class="split"><div class="card"><h2>${esc(state.team)} defenders</h2>
+    <p class="hint">Players with at least ${m.min_events} credited plays in ${DATA.meta.season}. A <span class="pill flag">differs</span> tag means the model's role is not the listed one. Select a row for the field map.</p>` +
+    table("deft", rows, [
+      {k: "player", label: "Player", fmt: (v, r) => `${esc(v)}${r.mismatch ? ' <span class="pill flag">differs</span>' : ""}`},
+      {k: "pos", label: "Listed", fmt: (v, r) => esc(v || "\u2013") + (r.sr_pos && r.sr_pos !== v ? ` <span class="muted small">(${esc(r.sr_pos)})</span>` : "")},
+      {k: "pred_role", label: "Model role", fmt: (v, r) => `${esc(v)} <span class="muted small">${pct(r.pred_p)}</span>`},
+      {k: "location", label: "Where he makes plays"},
+      {k: "events", label: "Plays", num: true},
+      {k: "pass_rush", label: "Sacks+hurries", num: true},
+      {k: "pbu", label: "PBU", num: true},
+    ], {sortKey: "events", selKey: "athlete_id", selected: state.sel.def, onSel: true}) + `</div>`;
+  h += `<div class="card">` + (p ? defDetail(p) : `<p class="muted">No defender selected.</p>`) + `</div></div>`;
+  selHandlers.deft = v => { state.sel.def = +v; render(); };
+  return h;
+}
+function defDetail(p) {
+  const total = DEF_ROWS.reduce((s, r) => s + DIRS.reduce((t, c) => t + (p.grid[`${r}|${c}`] || 0), 0), 0);
+  const unlocated = p.events - total;
+  let h = `<h2>${esc(p.player)}</h2><p class="hint">${esc(p.team)} \u00b7 listed ${esc(p.pos || "\u2013")}${p.sr_pos ? " (Sportradar " + esc(p.sr_pos) + ")" : ""} \u00b7 ${p.games} games \u00b7 ${p.events} credited plays</p>`;
+  h += `<div class="facts"><div class="fact"><div class="k">Approximate alignment</div><div class="d" style="font-size:14px;color:var(--text-primary);font-weight:600">${esc(p.alignment)}</div></div>
+        <div class="fact"><div class="k">Where he makes plays</div><div class="d" style="font-size:14px;color:var(--text-primary)">${esc(p.location)}</div></div></div>`;
+  h += `<h3>Credited plays by field zone</h3>` + fieldGrid({
+    rows: DEF_ROWS, losRow: 4, note: "defender plays by zone",
+    value: (r, c) => p.grid[`${r}|${c}`], text: (r, c) => p.grid[`${r}|${c}`] || "",
+    tip: (r, c) => `${r}, ${DIR_LABEL[c]}: ${p.grid[`${r}|${c}`] || 0} of ${total} located plays`});
+  h += `<p class="hint">Depth is where the ball carrier was tackled (runs and catches) or where the pass was thrown (breakups, interceptions). ${unlocated} plays have no side in the text (${p.pass_rush} sacks and hurries, plus interceptions). Median depth ${num(p.depth_med)} yds; on runs ${num(p.run_depth_med)} yds.</p>`;
+  h += `<h3>Model role probability</h3>` + bars(Object.entries(p.probs).sort((a, b) => b[1] - a[1]));
+  h += `<h3>Credits</h3>` + bars([["Run tackles", p.run_tkl], ["Catch tackles", p.pass_tkl], ["Sacks", p.sacks], ["Hurries", p.hurries], ["Pass breakups", p.pbu], ["Interceptions", p.ints]], v => String(v));
+  return h;
+}
+
+// ---------------------------------------------------------------- Offense
+function renderOffense() {
+  const rows = DATA.offense.players.filter(p => p.team === state.team);
+  if (!rows.find(p => p.athlete_id === state.sel.off)) state.sel.off = rows.length ? rows.slice().sort((a, b) => (b.targets + b.rushes) - (a.targets + a.rushes))[0].athlete_id : null;
+  const p = rows.find(r => r.athlete_id === state.sel.off);
+  let h = `<div class="split"><div class="card"><h2>${esc(state.team)} ball carriers, targets and passers</h2>
+    <p class="hint">Players with at least 15 targets, 30 rushes or 60 passes in ${DATA.meta.season}. Style is a plain reading of where the player's targets or runs go. Select a row for the maps.</p>` +
+    table("offt", rows, [
+      {k: "player", label: "Player"},
+      {k: "pos", label: "Pos", fmt: v => esc(v || "\u2013")},
+      {k: "style", label: "Style"},
+      {k: "targets", label: "Tgt", num: true},
+      {k: "rushes", label: "Rush", num: true},
+      {k: "attempts", label: "Pass", num: true},
+      {k: "tgt_share", label: "Tgt share", num: true, fmt: v => pct(v)},
+      {k: "adot", label: "Avg depth", num: true, fmt: v => num(v)},
+      {k: "catch_rate", label: "Catch", num: true, fmt: v => pct(v)},
+      {k: "ypc", label: "Yds/rush", num: true, fmt: v => num(v)},
+    ], {sortKey: "targets", selKey: "athlete_id", selected: state.sel.off, onSel: true}) + `</div>`;
+  h += `<div class="card">` + (p ? offDetail(p) : `<p class="muted">No player selected.</p>`) + `</div></div>`;
+  selHandlers.offt = v => { state.sel.off = +v; render(); };
+  return h;
+}
+function offDetail(p) {
+  let h = `<h2>${esc(p.player)}</h2><p class="hint">${esc(p.team)} \u00b7 ${esc(p.pos || "\u2013")} \u00b7 ${p.games} games \u00b7 ${esc(p.style)}</p><div class="facts">`;
+  if (p.targets) h += `<div class="fact"><div class="k">Targets</div><div class="v">${p.targets}</div><div class="d">${pct(p.tgt_share)} of team \u00b7 avg depth ${num(p.adot)} \u00b7 catch ${pct(p.catch_rate)} \u00b7 YAC ${num(p.yac)}</div></div>`;
+  if (p.rushes) h += `<div class="fact"><div class="k">Rushes</div><div class="v">${p.rushes}</div><div class="d">${pct(p.rush_share)} of team \u00b7 ${num(p.ypc)} yds \u00b7 success ${pct(p.rush_success)} \u00b7 stuffed ${pct(p.stuff_rate)}</div></div>`;
+  if (p.attempts) h += `<div class="fact"><div class="k">Passes</div><div class="v">${p.attempts}</div><div class="d">completion ${pct(p.comp_pct)} \u00b7 avg depth ${num(p.pass_adot)} \u00b7 ${p.ints} INT</div></div>`;
+  h += `</div><div class="grids">`;
+  if (p.pass_grid && p.attempts >= 60) {
+    const g = p.pass_grid, tot = Object.values(g).reduce((s, v) => s + v[0], 0);
+    h += `<div><h3>Where his passes go (air yards)</h3>` + fieldGrid({rows: TGT_ROWS, losRow: 3, note: "pass map",
+      value: (r, c) => (g[`${r}|${c}`] || [0])[0], text: (r, c) => (g[`${r}|${c}`] || [0])[0] || "",
+      tip: (r, c) => { const v = g[`${r}|${c}`] || [0, 0]; return `${r}, ${DIR_LABEL[c]}: ${v[0]} passes (${pct(v[0] / tot)}), ${v[1]} complete (${v[0] ? pct(v[1] / v[0]) : "\u2013"})`; }}) + `</div>`;
+  }
+  if (p.tgt_grid && p.targets) {
+    const g = p.tgt_grid;
+    h += `<div><h3>Where he is targeted (air yards)</h3>` + fieldGrid({rows: TGT_ROWS, losRow: 3, note: "target map",
+      value: (r, c) => (g[`${r}|${c}`] || [0])[0], text: (r, c) => { const v = g[`${r}|${c}`] || [0, 0]; return v[0] ? `${v[1]}/${v[0]}` : ""; },
+      tip: (r, c) => { const v = g[`${r}|${c}`] || [0, 0, 0]; return `${r}, ${DIR_LABEL[c]}: ${v[0]} targets, ${v[1]} catches, ${v[2]} yds`; }}) +
+      `<p class="hint">Cells read catches / targets. Intended receivers on interceptions are not named by side, so they are not in the map.</p></div>`;
+  }
+  if (p.rush_grid && p.rushes) {
+    const g = p.rush_grid;
+    h += `<div><h3>Where he runs (gain by direction)</h3>` + fieldGrid({rows: RUSH_ROWS, losRow: 3, note: "rush map",
+      value: (r, c) => g[`${r}|${c}`], text: (r, c) => g[`${r}|${c}`] || "",
+      tip: (r, c) => `${DIR_LABEL[c]}, gain ${r}: ${g[`${r}|${c}`] || 0} rushes`}) + `</div>`;
+  }
+  h += `</div>`;
+  if (p.touch_mix) {
+    const order = ["Run left", "Run middle", "Run right", "Behind LOS", "Short 1-9", "Inter 10-19", "Deep 20+"];
+    const e = order.filter(k => p.touch_mix[k] != null).map(k => [k === "Behind LOS" ? "Screen / behind LOS" : k, p.touch_mix[k]]);
+    if (e.length && (p.targets || p.rushes)) h += `<h3>Play types called for him (share of his touches and targets)</h3>` + bars(e);
+  }
+  h += `<h3>When he gets the ball</h3>` + bars(Object.entries(p.situation));
+  return h;
+}
+
+// ---------------------------------------------------------------- Running backs
+function renderRB() {
+  const rows = DATA.rb.players.filter(p => p.team === state.team);
+  if (!rows.find(p => p.athlete_id === state.sel.rb)) state.sel.rb = rows.length ? rows.slice().sort((a, b) => b.rushes - a.rushes)[0].athlete_id : null;
+  const p = rows.find(r => r.athlete_id === state.sel.rb);
+  let h = `<div class="card"><h2>${esc(state.team)} running backs</h2>
+    <p class="hint">RB and FB carries, ${DATA.meta.season}, garbage time left out, at least 30 carries. Success is CFBD's standard (50% of the distance on 1st down, 70% on 2nd, all of it on 3rd and 4th). Select a back.</p>` +
+    table("rbt", rows, [
+      {k: "player", label: "Player"},
+      {k: "rushes", label: "Carries", num: true},
+      {k: "success", label: "Success", num: true, fmt: v => pct(v)},
+      {k: "stuff", label: "Stuffed", num: true, fmt: v => pct(v)},
+      {k: "ypc", label: "Yds/carry", num: true, fmt: v => num(v)},
+      {k: "weakest", label: "Weakest direction vs expected", sortv: r => r.weakest ? r.weakest.delta : null,
+       fmt: v => v ? `${DIR_LABEL[v.dir]} <span class="muted small">${pp(v.delta)}, n ${v.n}</span>` : "\u2013"},
+      {k: "trouble", label: "Trouble spots", sortv: r => r.trouble.length, fmt: v => v.length ? `<span class="pill flag">${v.length}</span>` : `<span class="muted">none</span>`},
+    ], {sortKey: "rushes", selKey: "athlete_id", selected: state.sel.rb, onSel: true}) + `</div>`;
+  selHandlers.rbt = v => { state.sel.rb = +v; render(); };
+  if (p) h += rbDetail(p);
+  return h;
+}
+function rbDetail(p) {
+  const fbs = DATA.rb.fbs;
+  let h = `<div class="card"><h2>${esc(p.player)}: where he has trouble</h2>
+    <p class="hint">Expected = an average FBS back's success in that direction against the same defenses (each opponent's success allowed that way, shrunk toward the FBS rate). Blue is better than expected, red worse.</p><div class="dir-tiles">`;
+  for (const d of DIRS) {
+    const a = p.dirs[d], v = (p.dir_vs_opps || []).find(x => x.dir === d);
+    h += `<div class="dir-tile"><div class="k">${DIR_LABEL[d]} runs \u00b7 ${a.n}</div>
+      <div class="v">${pct(a.success)}</div>
+      <div class="d">success \u00b7 expected ${v ? pct(v.exp_vs_opps) : "\u2013"} \u00b7 <span class="chip" style="background:${divFill(v ? v.delta : null, 0.25)}">${v ? pp(v.delta) : "\u2013"}</span></div>
+      <div class="d">stuffed ${pct(a.stuff)} (FBS backs ${pct(a.fbs_stuff)}) \u00b7 ${num(a.ypc)} yds</div></div>`;
+  }
+  h += `</div>`;
+  h += `<h3>Flagged trouble spots (one-sided 10% level, at least 8 carries)</h3>`;
+  h += p.trouble.length ? `<ul class="small">` + p.trouble.map(t => `<li><b>${DIR_LABEL[t.dir]}${t.formation !== "All" ? ", " + esc(t.formation) : ""}</b>: ${pct(t.success)} success on ${t.n} carries vs ${pct(t.exp_vs_opps)} expected (${pp(t.delta)}); stuffed ${pct(t.stuff)}</li>`).join("") + `</ul>`
+    : `<p class="small muted">None: no direction or direction-and-formation split is clearly below expectation.</p>`;
+  h += `<h3>By direction and formation</h3>` + table("rbcells", p.cells, [
+    {k: "dir", label: "Direction", fmt: v => DIR_LABEL[v]}, {k: "formation", label: "Formation"},
+    {k: "n", label: "Carries", num: true}, {k: "success", label: "Success", num: true, fmt: v => pct(v)},
+    {k: "exp_vs_opps", label: "Expected", num: true, fmt: v => pct(v)},
+    {k: "delta", label: "Diff", num: true, fmt: v => `<span class="chip" style="background:${divFill(v, 0.25)}">${pp(v)}</span>`},
+    {k: "stuff", label: "Stuffed", num: true, fmt: v => pct(v)}, {k: "ypc", label: "Yds", num: true, fmt: v => num(v)}],
+    {sortKey: "n"});
+  h += `<h3>Situations</h3>` + table("rbsit", Object.entries(p.situations).map(([k, v]) => ({k, ...v})), [
+    {k: "k", label: "Situation"}, {k: "n", label: "Carries", num: true},
+    {k: "success", label: "Success", num: true, fmt: v => pct(v)}, {k: "stuff", label: "Stuffed", num: true, fmt: v => pct(v)}], {sortKey: "n"});
+  h += `</div>`;
+  const games = DATA.rb.games.filter(g => g.athlete_id === p.athlete_id).sort((a, b) => a.week - b.week);
+  const cell = c => {
+    if (!c || !c.n) return `<td class="num muted">\u2013</td>`;
+    const delta = c.success - c.expected;
+    return `<td class="num" data-tip="${esc(`${c.n} carries, ${pct(c.success)} success vs ${pct(c.expected)} expected for him against this defense. Defense allows ${pct(c.opp_allowed)} that way (${pp(c.opp_adj)} vs FBS). ${num(c.ypc)} yds/carry, stuffed ${pct(c.stuff)}.`)}"><span class="chip" style="background:${divFill(delta, 0.4)}">${pct(c.success)} <span class="small">/${c.n}</span></span>${c.flag ? ' <span class="pill flag">struggled</span>' : ""}</td>`;
+  };
+  h += `<div class="card"><h2>${esc(p.player)} by opponent</h2>
+    <p class="hint">Each cell: success / carries that way. Expected = his own shrunk success in that direction plus the opponent's run-defense adjustment in that direction. "Struggled" = at least 4 carries and one-sided 10% below expected; with three directions per game, some flags are chance. Hover a cell for the opponent's numbers.</p>
+    <div class="legend"><span><span class="sw" style="background:${divFill(-0.4, 0.4)}"></span>below expected</span><span><span class="sw" style="background:${divFill(0, 0.4)}"></span>as expected</span><span><span class="sw" style="background:${divFill(0.4, 0.4)}"></span>above expected</span></div>
+    <div class="table-scroll"><table><thead><tr><th>Wk</th><th>Opponent</th><th class="num">Carries</th><th class="num">Success</th><th class="num">Yds</th>${DIRS.map(d => `<th class="num">${DIR_LABEL[d]}</th>`).join("")}</tr></thead><tbody>` +
+    games.map(g => `<tr><td class="num">${g.week}</td><td>${g.home ? "" : "at "}${esc(g.opponent)}</td><td class="num">${g.rushes}</td><td class="num">${pct(g.success)}</td><td class="num">${num(g.ypc)}</td>${DIRS.map(d => cell(g.dirs[d])).join("")}</tr>`).join("") +
+    `</tbody></table></div></div>`;
+  return h;
+}
+
+// ---------------------------------------------------------------- Receivers & QB
+function renderReceiving() {
+  const R = DATA.receiving, m = R.model;
+  const t = R.teams.find(x => x.team === state.team);
+  const vpill = v => v.startsWith("QB issue") ? `<span class="pill flag">${esc(v)}</span>` : v.startsWith("Both") || v.startsWith("Receiver") ? `<span class="pill flag">${esc(v)}</span>` : v.startsWith("No overall") ? `<span class="pill watch">${esc(v)}</span>` : `<span class="pill ok">${esc(v)}</span>`;
+  let h = `<div class="card"><h2>Drops or the quarterback? SEC overview</h2>
+    <p class="hint">No source marks drops, so this uses clean incompletions: a pass to a named receiver that falls incomplete with no breakup, interception or hurry credited. That covers drops and plain misses (overthrows, wrong routes). Expected = the same throws (air yards, direction, down) against the same defenses by an average FBS QB and receivers. Select a team.</p>` +
+    table("rect", R.teams, [
+      {k: "team", label: "Team"}, {k: "targets", label: "Unhurried targets", num: true},
+      {k: "clean_inc", label: "Clean inc.", num: true, fmt: v => pct(v, 1)},
+      {k: "expected", label: "Expected", num: true, fmt: v => pct(v, 1)},
+      {k: "diff", label: "Diff", num: true, sortv: r => r.clean_inc - r.expected, fmt: (v, r) => `<span class="chip" style="background:${divFill(r.expected - r.clean_inc, 0.08)}">${pp(r.clean_inc - r.expected)}</span>`},
+      {k: "verdict", label: "Reading", fmt: v => vpill(v)},
+    ], {sortKey: "team", sortDir: 1, selKey: "team", selected: state.team, onSel: true}) + `</div>`;
+  selHandlers.rect = v => { setTeam(v); };
+  if (!t) return h;
+  h += `<div class="card"><h2>${esc(t.team)}</h2><div class="verdict">${vpill(t.verdict)}</div>
+    <p class="hint">Effects come from one logistic model fit on ${m.rows.toLocaleString()} unhurried FBS targets (2025 week 9 on and 2026) with shrunk effects for each passer, receiver and defense. A receiver's effect is measured against the other receivers his QBs threw to; a QB's against the other QBs his receivers caught from. A flag needs z \u2265 ${m.effect_z}; "watch" is 1.64 to ${m.effect_z}.</p>`;
+  const flagCell = (v, r) => r.flag ? `<span class="pill flag">flag</span>` : r.watch ? `<span class="pill watch">watch</span>` : "";
+  h += `<h3>Quarterbacks</h3>` + table("qbt", t.qbs, [
+    {k: "player", label: "QB"}, {k: "targets", label: "Unhurried", num: true},
+    {k: "clean_inc", label: "Clean inc.", num: true, fmt: v => pct(v, 1)},
+    {k: "expected", label: "Avg QB, same receivers", num: true, fmt: v => pct(v, 1)},
+    {k: "effect_pp", label: "QB effect", num: true, fmt: v => `<span class="chip" style="background:${divFill(-v, 8)}">${sgn(v)} pts</span>`},
+    {k: "z", label: "z", num: true, fmt: v => num(v, 2)},
+    {k: "hurried_share", label: "Hurried share", num: true, fmt: v => pct(v)},
+    {k: "flag", label: "", fmt: flagCell}], {sortKey: "targets"});
+  h += `<h3>Receivers</h3>` + table("rect2", t.receivers, [
+    {k: "player", label: "Receiver"}, {k: "pos", label: "Pos", fmt: v => esc(v || "\u2013")},
+    {k: "targets", label: "Unhurried tgt", num: true}, {k: "adot", label: "Avg depth", num: true, fmt: v => num(v)},
+    {k: "clean_inc", label: "Clean inc.", num: true, fmt: v => pct(v, 1)},
+    {k: "teammates", label: "Teammates", num: true, fmt: v => pct(v, 1)},
+    {k: "expected", label: "Avg receiver, same QB", num: true, fmt: v => pct(v, 1)},
+    {k: "effect_pp", label: "Receiver effect", num: true, fmt: v => `<span class="chip" style="background:${divFill(-v, 8)}">${sgn(v)} pts</span>`},
+    {k: "z", label: "z", num: true, fmt: v => num(v, 2)},
+    {k: "flag", label: "", fmt: flagCell}], {sortKey: "targets"});
+  const cells = t.cells.slice(0, 14);
+  h += `<h3>By play type: receiver against teammates on the same throw</h3>
+    <p class="hint">Depth (air yards) and direction. Teammates' rate is shrunk toward the FBS rate for that throw (${m.cell_k} throws). Flag = binomial p < ${m.cell_p}, at least 6 targets and 20 points above teammates. ${t.cells.length} cells with 5+ targets; ${cells.length} lowest p shown.</p>` +
+    table("cellt", cells, [
+      {k: "player", label: "Receiver"}, {k: "depth", label: "Depth"}, {k: "dir", label: "Direction", fmt: v => DIR_LABEL[v]},
+      {k: "n", label: "Tgt", num: true}, {k: "clean_inc", label: "Clean inc.", num: true, fmt: v => pct(v)},
+      {k: "teammates", label: "Teammates", num: true, fmt: (v, r) => `${pct(v)} <span class="muted small">/${r.mates_n}</span>`},
+      {k: "p", label: "p", num: true, fmt: v => num(v, 3)},
+      {k: "flag", label: "", fmt: v => v ? `<span class="pill flag">flag</span>` : ""}], {sortKey: "p", sortDir: 1});
+  h += `</div>`;
+  return h;
+}
+
+// ---------------------------------------------------------------- Method
+function renderMethod() {
+  const M = DATA.meta, dm = DATA.defense.model, rm = DATA.receiving.model;
+  return `<div class="card prose"><h2>How this is built</h2>
+  <p>Source: CFBD play-by-play text (the stat crew's own wording, which names direction, pass depth, tacklers, breakups and hurries) parsed by <code>cfb.core.playtext</code>. That text exists for every game from 2025 week 9 on; earlier games only have a condensed version without these details. Display season ${M.season}, weeks ${M.weeks ? M.weeks.join("\u2013") : "?"}; league-wide fits use ${M.fit_seasons.join(" and ")} (2025 from week 9). Built ${esc(M.built_utc)} UTC by <code>python -m cfb.lab.player_maps</code>. Nothing here feeds the prediction model.</p>
+  <h3>Directions</h3><p>Left, middle and right are the offense's. A defender making plays on the offense's left lines up on the defense's right. The text has no hash marks or formation strength, so field and boundary sides cannot be told apart, and players who flip sides with the formation show up as "sideline to sideline". About ${pct(dm.left_share)} of located plays go to the offense's left, so a side lean is measured against that, not 50%.</p>
+  <h3>Defense</h3><p>Each credited tackle is placed where the ball carrier went down: the run's direction and gain, or the catch's direction and total gain. Breakups and interceptions are placed at the throw (direction and air yards; interceptions have no direction). Sacks and hurries count as backfield plays without a side. This is where a defender finishes plays: close to where linemen and linebackers line up, and shallower than where safeties line up, since they come downhill to tackle. The role model (softmax regression on ${dm.features.length} profile features: run-tackle depth, share of tackles for loss, share of catch tackles, pass-rush and coverage rates, middle share, side lean, shared tackles and more) turns the profile into a likely role, and the alignment line is that role plus any clear side lean. Listed roles come from CFBD rosters and, where those only say DL, DB or LB, Sportradar's position.</p>
+  <h3>Offense</h3><p>Targets are placed by direction and air yards (behind the line counts as a screen or swing pass), runs by direction and gain. Play-type mix and situations (formation, down, red zone, no huddle) are shares of each player's own touches and targets.</p>
+  <h3>Running backs</h3><p>Expected success for a split = the FBS average for RBs in that direction (and formation), adjusted for each opponent's success allowed in that direction, shrunk toward the FBS rate with ${DATA.rb.k_def} carries. By game, the back's own direction baseline (shrunk with ${DATA.rb.k_rb} carries) replaces the FBS average.</p>
+  <h3>Drops and the QB</h3><p>Hurried throws are left out: stat crews credit a hurry almost only when the pass falls incomplete, so those misses belong to the pass rush (${rm.hurried_rows_left_out.toLocaleString()} rows). On the ${rm.rows.toLocaleString()} unhurried targets, ${pct(rm.clean_inc_rate)} were clean incompletions (behind the line ${pct(rm.by_depth["Behind LOS"])}, short ${pct(rm.by_depth["Short 1-9"])}, intermediate ${pct(rm.by_depth["Inter 10-19"])}, deep ${pct(rm.by_depth["Deep 20+"])}). The model's throw cells are air yards by direction plus a 3rd/4th-down term; passer, receiver and defense effects are shrunk (logit SD ${rm.tau.qb}, ${rm.tau.rec}, ${rm.tau.def}). A clean incompletion can be a drop, an off-target throw or a missed read; the model can only say whether the excess follows the QB across his receivers or follows one receiver across throws. When one QB throws nearly every pass, the split leans on the receivers' targets from other QBs (backups, 2025 games, transfers) and is less certain.</p>
+  <h3>Limits</h3><ul><li>No snap counts or on-field participation: only players credited on a play appear, so a defender who is never near the ball has no profile.</li><li>Defense minimum ${dm.min_events} credited plays; offense 15 targets, 30 rushes or 60 passes; RBs 30 carries.</li><li>Roster ids are matched from jersey and name; about 0.4% of named players in this text format did not match.</li><li>Sportradar's play-action, screen and RPO flags are false on every 2026 play, so play-action and RPO calls cannot be identified.</li></ul></div>`;
+}
+
+// ---------------------------------------------------------------- Shell
+function setTeam(t) { state.team = t; document.getElementById("team").value = t; render(); }
+function render() {
+  const tabs = {defense: renderDefense, offense: renderOffense, rbs: renderRB, receiving: renderReceiving, method: renderMethod};
+  for (const k of Object.keys(tabs)) {
+    const el = document.getElementById("tab-" + k);
+    el.hidden = k !== state.tab;
+    if (k === state.tab) el.innerHTML = tabs[k]();
+  }
+  document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === state.tab ? "true" : "false"));
+  try { localStorage.setItem("pm-team", state.team); } catch (e) {}
+}
+function init() {
+  if (!DATA) { document.getElementById("subtitle").textContent = "No data embedded."; return; }
+  const M = DATA.meta;
+  document.getElementById("title").textContent = `${M.conference} Player Maps`;
+  document.title = `${M.conference} Player Maps`;
+  document.getElementById("subtitle").textContent = `${M.season} season, weeks ${M.weeks ? M.weeks.join("\u2013") : "?"} \u00b7 from the stat crew's play-by-play text \u00b7 test bench, not used by the prediction model`;
+  document.getElementById("foot").textContent = `Built ${M.built_utc} UTC \u00b7 ${M.plays_conf.toLocaleString()} ${M.conference} scrimmage plays \u00b7 directions are the offense's`;
+  const sel = document.getElementById("team");
+  sel.innerHTML = M.teams.map(t => `<option>${esc(t)}</option>`).join("");
+  let saved = null; try { saved = localStorage.getItem("pm-team"); } catch (e) {}
+  state.team = M.teams.includes(saved) ? saved : M.teams[0];
+  sel.value = state.team;
+  sel.addEventListener("change", () => setTeam(sel.value));
+  const fromHash = () => { const h = location.hash.slice(1); if (["defense", "offense", "rbs", "receiving", "method"].includes(h)) { state.tab = h; render(); } };
+  document.getElementById("tabs").addEventListener("click", e => {
+    const b = e.target.closest("button[data-tab]"); if (!b) return;
+    state.tab = b.dataset.tab; try { history.replaceState(null, "", "#" + state.tab); } catch (err) {} render();
+  });
+  window.addEventListener("hashchange", fromHash);
+  document.addEventListener("click", e => {
+    const th = e.target.closest("th.sortable");
+    if (th) { const id = th.dataset.table, k = th.dataset.k, cur = state.sort[id];
+      state.sort[id] = {k, dir: cur && cur.k === k ? -cur.dir : -1}; render(); return; }
+    const tr = e.target.closest("tr[data-sel]");
+    if (tr && selHandlers[tr.dataset.sel]) selHandlers[tr.dataset.sel](tr.dataset.val);
+  });
+  document.addEventListener("keydown", e => {
+    const tr = e.target.closest && e.target.closest("tr[data-sel]");
+    if (tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); selHandlers[tr.dataset.sel](tr.dataset.val); }
+  });
+  const tip = document.getElementById("tip");
+  document.addEventListener("pointermove", e => {
+    const t = e.target.closest && e.target.closest("[data-tip]");
+    if (!t || !t.dataset.tip) { tip.hidden = true; return; }
+    tip.textContent = t.dataset.tip; tip.hidden = false;
+    const x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8), y = Math.min(e.clientY + 14, window.innerHeight - tip.offsetHeight - 8);
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  });
+  fromHash();
+  render();
+}
+init();
+</script>
