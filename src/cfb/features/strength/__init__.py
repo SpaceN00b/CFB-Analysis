@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from .groups import GROUPS as _V1_GROUPS
 from .groups_v2 import GROUPS_V2
+from .playtext import PassAccuracy
 from .units import unit_ratings
 
-GROUPS = _V1_GROUPS + GROUPS_V2
+# str_pass_ci (detailed play text, 2025 week 9 on) is not used by any model: docs/player-maps.md.
+GROUPS = _V1_GROUPS + GROUPS_V2 + [PassAccuracy()]
 
 __all__ = ["GROUPS", "unit_ratings"]

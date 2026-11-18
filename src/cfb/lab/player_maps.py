@@ -35,6 +35,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from cfb.features.strength.playtext import fit_clean_inc  # noqa: F401  (shared with the str_pass_ci group)
+
 SCRIMMAGE_ACTIONS = ("rush", "pass", "sack")
 DIRS = ("left", "middle", "right")
 
@@ -678,65 +680,10 @@ def target_rows(b: dict) -> pd.DataFrame:
     return t.reset_index(drop=True)
 
 
-def fit_clean_inc(t: pd.DataFrame, tau=(0.4, 0.4, 0.25), sweeps: int = 60) -> dict:
-    """Logistic model on unhurried throws: base (air bin x direction, 3rd/4th down) + ridge effects
-    for passer, receiver and defense, fit by backfitting with one Newton step per effect and sweep.
-    Pass rows without hurried throws (see target_rows)."""
-    y = t["clean_inc"].to_numpy()
-    cell = (t["air_bin"].astype(int) * 3 + t["pass_dir"].map({"left": 0, "middle": 1, "right": 2})).to_numpy()
-    n_cell = len(AIR_BINS) * 3
-    late = (t["down"] >= 3).to_numpy().astype(float)
-    groups = {}
-    for name, col in (("qb", "qb_id"), ("rec", "rec_id"), ("def", "defense_id")):
-        codes, uniq = pd.factorize(t[col].astype("int64"))
-        groups[name] = (codes, uniq)
-    lam = {"qb": 1 / tau[0] ** 2, "rec": 1 / tau[1] ** 2, "def": 1 / tau[2] ** 2}
-    a = np.zeros(n_cell)
-    bl = 0.0
-    eff = {g: np.zeros(len(groups[g][1])) for g in groups}
-
-    def eta():
-        e = a[cell] + bl * late
-        for g, (codes, _) in groups.items():
-            e = e + eff[g][codes]
-        return e
-
-    for _ in range(sweeps):
-        p = 1 / (1 + np.exp(-eta()))
-        w = p * (1 - p)
-        a += np.bincount(cell, y - p, n_cell) / (np.bincount(cell, w, n_cell) + 1.0)
-        p = 1 / (1 + np.exp(-eta()))
-        bl += ((y - p) * late).sum() / ((p * (1 - p) * late).sum() + 1.0)
-        for g, (codes, uniq) in groups.items():
-            p = 1 / (1 + np.exp(-eta()))
-            w = p * (1 - p)
-            k = len(uniq)
-            grad = np.bincount(codes, y - p, k) - lam[g] * eff[g]
-            hess = np.bincount(codes, w, k) + lam[g]
-            eff[g] += grad / hess
-    e = eta()
-    p = 1 / (1 + np.exp(-e))
-    w = p * (1 - p)
-    out = {"p": p, "eta": e, "late_coef": bl, "cell_coef": a,
-           "row_eff": {g: eff[g][codes] for g, (codes, _) in groups.items()}}
-    for g, (codes, uniq) in groups.items():
-        k = len(uniq)
-        se = 1 / np.sqrt(np.bincount(codes, w, k) + lam[g])
-        # Effect in percentage points: mean over the player's throws of p - p(without effect).
-        p0 = 1 / (1 + np.exp(-(e - eff[g][codes])))
-        pp_eff = np.bincount(codes, p - p0, k) / np.maximum(np.bincount(codes, minlength=k), 1)
-        exp_wo = np.bincount(codes, p0, k) / np.maximum(np.bincount(codes, minlength=k), 1)
-        out[g] = pd.DataFrame({"id": uniq, "coef": eff[g], "se": se, "z": eff[g] / se,
-                               "pp": pp_eff * 100, "exp_without": exp_wo,
-                               "n": np.bincount(codes, minlength=k),
-                               "obs": np.bincount(codes, y, k) / np.maximum(np.bincount(codes, minlength=k), 1)})
-    return out
-
-
 def receiving_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int], team_name: dict) -> dict:
     allt = target_rows(b)
     t = allt[~allt["hurried"]].reset_index(drop=True)
-    fit = fit_clean_inc(t)
+    fit = fit_clean_inc(t, sweeps=60)
     sig = lambda x: 1 / (1 + np.exp(-x))
     t["p"] = fit["p"]
     t["p_team"] = sig(fit["eta"] - fit["row_eff"]["qb"] - fit["row_eff"]["rec"])  # average QB and receivers

@@ -105,6 +105,49 @@ incompletions on 235 unhurried targets vs 19.1% for an average QB with the same 
 throws, z 2.13). No receiver is flagged overall. Mississippi State has two play-type spots (Zion
 Ragins short left, Sam West short middle). The other 14 teams show no clear issue.
 
+## Model features from the same text
+
+Three feature groups, registered so `cfb.features.build` and the weekly run compute them, but in no
+model (not in `MODEL_V2_GROUPS`). All read visible plays of the cutoff season and the one before,
+so they are empty before 2025 week 9. Leak-tested at four cutoffs (`tests/test_playtext_features.py`).
+
+| Group | Columns | What it measures |
+|---|---|---|
+| `str_pass_ci` (`cfb/features/strength/playtext.py`) | `str_pci_qb`, `str_pci_rec`, `str_pci_def`, `str_pci_n` | The clean-incompletion model above, fit on every FBS team: the last game's starting passer's effect, the target-weighted receiver effect, the defense's effect (positive = forces more), log of team targets |
+| `matchup_run_dir` (`cfb/features/matchup/playtext.py`) | `mat_rdir_fit`, `mat_rdir_exp`, `mat_rdir_n` | Run direction (left, middle, right): the offense's tilt times this defense's success allowed by direction (`fit`), expected success over the FBS rate (`exp`), log of the smaller sample |
+| `matchup_pass_zone` (same file) | `mat_pzone_fit`, `mat_pzone_exp`, `mat_pzone_n` | The same for passes, by depth (behind the line, 1-9, 10-19, 20+ air yards) and direction |
+
+Shares shrink toward the FBS share with 30 plays and success rates toward the FBS rate with 40.
+Garbage time is left out of the matchup groups; hurried throws out of `str_pass_ci`.
+
+### Do they add to model_v2?
+
+`python scripts/playtext_select.py [--lam 0.03]`. The 2018-2025 season-forward selection cannot
+use them, so the test is a second stage on model_v2's own predictions (2025 from the pre-season
+fit, 2026 refit at every cutoff): logistic regression with offset logit(p_v2), no intercept,
+standardized home-minus-away differences, ridge per observation. Before each 2026 week it refits on
+every earlier baseline-set game from 2025 week 9 on (321 from 2025), then scores the 630 baseline-set
+2026 games (FBS vs FBS, spread, both Elos). Bootstrap SE over 12 weeks.
+
+| Columns | lam 0.03 | lam 0.3 |
+|---|---|---|
+| model_v2 alone (log loss) | 0.5435 | 0.5435 |
+| `str_pass_ci` (4) | +0.0016 (SE 0.0039) | -0.0003 (SE 0.0014) |
+| `str_pci_qb` | -0.0003 (SE 0.0022) | -0.0004 (SE 0.0009) |
+| `str_pci_qb`, `str_pci_rec` | +0.0002 (SE 0.0033) | -0.0006 (SE 0.0011) |
+| `matchup_run_dir` (3) | +0.0028 (SE 0.0016) | +0.0010 (SE 0.0007) |
+| `matchup_pass_zone` (3) | +0.0010 (SE 0.0012) | +0.0002 (SE 0.0005) |
+| `mat_pzone_fit` | -0.0003 (SE 0.0010) | -0.0003 (SE 0.0004) |
+| all 10 | +0.0060 (SE 0.0050) | +0.0010 (SE 0.0021) |
+
+No version is more than 0.6 SE better than model_v2; the run-direction group is worse at both
+penalties. In-sample, one column at a time over all 951 games, the largest effects are
+`str_pci_qb` (-0.11 log-odds per SD, z -1.4, the expected sign: a passer with more clean
+incompletions loses more) and `mat_pzone_fit` (+0.11, z +1.4). Verdict: not added to model_v2.
+With about one season of detailed text this test can detect only large effects (an SE of about
+0.001 in log loss); rerun it after the 2026 season, when 2025 week 9 to 2026 gives about twice the
+training games.
+
 ## Limits
 
 - Only players credited on a play appear; there are no snap counts or participation lists.
