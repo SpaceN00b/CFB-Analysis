@@ -7,3 +7,4 @@ data/
 .env
 build/
 dist/
+src/cfb/_build.py

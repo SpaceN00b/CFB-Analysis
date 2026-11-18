@@ -44,6 +44,8 @@ under `/mnt/project-files/cfbd-data` when that folder exists. The packaged Windo
 (`CFBD_API_KEY`, `R2_*`) are read from the environment first, then from the OS keyring
 (Windows Credential Manager) with `pip install -e '.[keyring]'`.
 
+Local Windows app (Streamlit UI, packaged installer, R2 sync): `docs/local-app.md`.
+
 Other commands:
 
 ```bash
