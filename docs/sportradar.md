@@ -58,6 +58,19 @@ coverage; from 2014, 762 of 767 or more.
 Size per game (2025 sample): raw 46 KB gzip, `sr_pbp` table about 90 KB, `sr_play_stats` about
 40 KB, so about 2 GB for all seasons. At 1.2 s per call the full pull takes about 4 to 5 hours.
 
+## Pulled so far
+
+2026-11-18: season 2026, every closed game with full coverage through week 12 (755 games,
+128,580 plays, 359,257 player-stat rows), plus 2 games of 2025. 776 calls, 20 of them
+throttled (429) and retried, 0 failures. Every game has defense stats (20 or more rows);
+the intended receiver is named on 17,287 of 17,910 incompletions. `screen_pass`, `play_action`
+and `run_pass_option` are false on all 128,580 plays. Size: raw 31 MB, tables 101 MB.
+
+Snapshot: `/mnt/project-files/sportradar-data/` (file name in `LATEST`); restore with
+`tar -xf /mnt/project-files/sportradar-data/$(cat /mnt/project-files/sportradar-data/LATEST)`
+from the repo root. It holds only the `sr_*` datasets. Seasons 2013 to 2025 are not pulled:
+about 11,130 calls, more than a trial key allows.
+
 ## Field notes (one game per season, 2026-11-18)
 
 - Iowa State vs Kansas State 2025: 161 plays, 119 tackle roles, intended receiver on 22 of 24
