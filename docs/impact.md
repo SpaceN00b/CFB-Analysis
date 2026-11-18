@@ -98,6 +98,56 @@ Presence changed little: 3,818 player-games added to 671,443 box-score lines.
 Pregame variants still fail the rule (2026: best -0.0015, SE 0.0011, not matched in 2018-2025).
 A 40%-target receiver out: about 3.24 x 0.4 = 1.3 points (SE 0.6). Conclusion unchanged.
 
+## Defense and several players out (`impact_multi.py`, 2026-11-18)
+
+Defensive role = box-score tackle share; "regular defenders" = the team's 11 DL/LB/DB with the
+highest tackle share before the game (stand-in for starters). Limits: CFBD has no snap counts
+(spec 5.34.0) and `/plays/stats` has no Tackle rows, so a defender with no tackle (common for
+corners and interior linemen) reads as absent; the 11 regulars average 0.92 "new out" per
+team-game, mostly such false absences. Key offensive players: QB >= 50% of attempts, RB >= 30%
+of carries, WR/TE >= 15% of targets. 2018-2025, 12,048 team-games, residual vs model_v2.
+
+**Defense:** no measurable cost.
+
+| Regular defenders new out | Residual (SE) | n |
+| --- | --- | ---: |
+| 0 | +0.12 (0.21) | 5,591 |
+| 1 | -0.28 (0.26) | 3,830 |
+| 2 | -0.06 (0.38) | 1,750 |
+| 3+ | +0.59 (0.55) | 877 |
+
+Per defender out +0.04 (0.11); DL +0.28 (0.31), LB -0.14 (0.25), DB +0.07 (0.21); by tackle
+share +0.09 (1.62); by playmaking share -0.42 (1.56); top-3 playmakers -0.19 (0.30).
+Pregame (missed only the last game): -0.17 (0.13) per defender.
+
+**Several players out:**
+
+| Key offensive players new out | Residual (SE) | n |
+| --- | --- | ---: |
+| 0 | +0.23 (0.17) | 8,977 |
+| 1 | -0.35 (0.31) | 2,533 |
+| 2+ | **-2.23 (0.70)** | 538 |
+
+The additive model (single-absence effects fitted on team-games with 0-1 out: QB -1.02, RB
+-1.15, WR -0.21, TE -0.20) predicts -1.03 for the 2+ games; the gap is -1.20 (SE 0.70), 1.7 SE:
+some sign that losses compound, not significant. 2+ out including the QB: -3.04 (n 301);
+without the QB: -1.21 (n 237). Counting defenders in (key offense + regular defenders): no
+pattern (2 out -0.34, 3 out -0.72, 4+ +0.34).
+
+**Pregame log loss** (model_v2 + home-minus-away columns, missed only the last game):
+
+| Added | 2018-25 diff (SE) | better | 2026 diff (SE) |
+| --- | --- | --- | --- |
+| defenders, count | -0.0001 (0.0001) | 5/8 | +0.0008 (0.0004) |
+| defenders, tackle share | -0.0001 (0.0002) | 5/8 | +0.0007 (0.0004) |
+| defenders, count (any streak) | -0.0002 (0.0001) | 5/8 | +0.0005 (0.0005) |
+| defenders by position | +0.0002 (0.0002) | 3/8 | +0.0007 (0.0006) |
+| key players, count (off + def) | -0.0002 (0.0003) | 5/8 | +0.0003 (0.0007) |
+| offense count + defense count | -0.0002 (0.0003) | 5/8 | -0.0009 (0.0012) |
+| offense by position + defense count | -0.0001 (0.0004) | 4/8 | -0.0007 (0.0010) |
+
+None passes the rule.
+
 ## Open option
 
 Extend the manual QB-out override (`cfb.model.qb_out`) to any player, using the per-share
