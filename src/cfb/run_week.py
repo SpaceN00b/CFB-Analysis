@@ -20,6 +20,9 @@ Steps, each logged:
   6. report    data/reports/<season>_<type>_<week>/: report.md, dashboard.html, bundle.json,
                metrics/<model_id>.json (season to date, FBS vs FBS)
   7. publish   copy the report folder to --publish/<key>/ and the newest files to --publish/latest/
+  8. warehouse upload the changed warehouse files and a manifest to the R2 bucket
+               (cfb.warehouse_sync); on with --publish when R2 settings exist (R2_ACCOUNT_ID
+               or the r2.toml config) or with --warehouse, off with --no-warehouse
 
 The model the report is about and its baselines come from dashboard/config.toml; switching
 from a baseline to the model is a change of `primary` there (or --primary).
@@ -59,6 +62,8 @@ class RunResult:
     files: dict[str, Path]
     notes: list[str] = field(default_factory=list)
     published: Path | None = None
+    warehouse: object | None = None  # warehouse_sync.PublishResult
+    warehouse_error: str | None = None
 
 
 def log(msg: str) -> None:
@@ -284,7 +289,8 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
         season_type: str | None = None, week: int | None = None, now=None, do_refresh: bool | None = None,
         archive: Path | None = None, allow_no_archive: bool = False, snapshot: Path | None = None,
         build_features: bool | None = None, out_dir: Path | None = None, publish_dir: Path | None = None,
-        write_predictions: bool = True, features_snapshot: Path | None = None) -> RunResult:
+        write_predictions: bool = True, features_snapshot: Path | None = None,
+        publish_warehouse_to_r2: bool | None = False) -> RunResult:
     data_dir = Path(data_dir)
     config = config or load_config()
     now_ts = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
@@ -293,7 +299,7 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
     created = pd.Timestamp.now(tz="UTC")
     notes: list[str] = []
 
-    log("step 1/7 data")
+    log("step 1/8 data")
     ensure_data(data_dir, snapshot)
     ensure_features(data_dir, features_snapshot)
     core_missing = not (data_dir / "core" / "game_index.parquet").exists()
@@ -316,7 +322,7 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
         do_refresh = live
     lines_asof = None
     if do_refresh:
-        log("step 2/7 refresh")
+        log("step 2/8 refresh")
         if archive is None and not allow_no_archive:
             raise SystemExit("refresh needs the dated-copy archive (--asof-archive DIR), because CFBD's weekly "
                              "SP+/FPI/SRS/CORE values cannot be pulled again later; pass --allow-no-archive to skip it")
@@ -324,25 +330,25 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
         if failures:
             notes.append(f"Data refresh had {len(failures)} failed requests; the report uses what was pulled.")
         lines_asof = now_ts
-        log("step 3/7 core")
+        log("step 3/8 core")
         build_core(data_dir)
         warehouse = Warehouse(data_dir)
         slate = target(warehouse)
     else:
-        log("step 2/7 refresh: skipped")
-        log("step 3/7 core: " + ("built" if core_missing else "kept"))
+        log("step 2/8 refresh: skipped")
+        log("step 3/8 core: " + ("built" if core_missing else "kept"))
     if live:
         lines_asof = lines_asof or lines_time(data_dir, slate.season)
 
     feats = config.build_features if build_features is None else build_features
     if feats:
-        log("step 4/7 features")
+        log("step 4/8 features")
         build_features_for(warehouse, slate.season)
         warehouse = Warehouse(data_dir)
     else:
-        log("step 4/7 features: skipped")
+        log("step 4/8 features: skipped")
 
-    log("step 5/7 predict")
+    log("step 5/8 predict")
     predictions, pnotes = produce_predictions(warehouse, slate, config, data_dir, write=write_predictions)
     notes += pnotes
     if config.qb_out and config.primary in predictions:
@@ -352,7 +358,7 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
         notes.insert(0, f"The report's model is the {config.primary} baseline until the trained model is "
                         "switched on in dashboard/config.toml.")
 
-    log("step 6/7 report")
+    log("step 6/8 report")
     out = Path(out_dir) if out_dir is not None else data_dir / "reports" / slate.key
     files = write_report(warehouse, slate, predictions, config, data_dir, out, notes, lines_asof, created)
     for k, v in files.items():
@@ -360,12 +366,38 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
             log(f"  {k}: {v}")
     published = None
     if publish_dir is not None:
-        log("step 7/7 publish")
+        log("step 7/8 publish")
         published = publish(out, Path(publish_dir), slate.key)
         log(f"  published to {published} and {Path(publish_dir) / 'latest'}")
     else:
-        log("step 7/7 publish: skipped (no --publish)")
-    return RunResult(slate, out, files, notes, published)
+        log("step 7/8 publish: skipped (no --publish)")
+    result = RunResult(slate, out, files, notes, published)
+    # Automatic only for the weekly invocation (--publish), so ad-hoc and past-week runs never
+    # replace what the PC syncs.
+    to_r2 = publish_warehouse_to_r2
+    if to_r2 is None and publish_dir is None:
+        to_r2 = False
+    publish_warehouse(data_dir, slate.key, result, to_r2)
+    return result
+
+
+def publish_warehouse(data_dir: Path, key: str, result: RunResult, enabled: bool | None) -> None:
+    from . import warehouse_sync as ws
+
+    r2 = ws.r2_settings()
+    if enabled is None:
+        enabled = r2.configured
+    if not enabled:
+        why = "no R2 settings" if not r2.configured else "off: needs --publish or --warehouse"
+        log(f"step 8/8 warehouse: skipped ({why})")
+        return
+    log(f"step 8/8 warehouse ({r2.backend}, bucket {r2.bucket})")
+    try:
+        result.warehouse = ws.publish(data_dir, ws.open_store(r2), key, quota=ws.cfbd_quota(),
+                                      commit=ws.git_commit(), log=lambda m: log("  " + m))
+    except Exception as exc:  # the report is already written; report the failure, do not lose it
+        result.warehouse_error = f"{exc.__class__.__name__}: {exc}"
+        log(f"  warehouse publish FAILED: {result.warehouse_error}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -394,6 +426,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default=None, help="report folder (default data/reports/<season>_<type>_<week>)")
     ap.add_argument("--publish", default=None, help="copy the report here, e.g. /mnt/project-files/reports")
     ap.add_argument("--no-write-predictions", action="store_true", help="do not write data/predictions files")
+    w = ap.add_mutually_exclusive_group()
+    w.add_argument("--warehouse", dest="warehouse", action="store_true", default=None,
+                   help="publish the warehouse to R2 (default: with --publish, when R2 settings exist)")
+    w.add_argument("--no-warehouse", dest="warehouse", action="store_false")
     args = ap.parse_args(argv)
 
     if args.week is not None and args.season is None:
@@ -407,12 +443,12 @@ def main(argv: list[str] | None = None) -> int:
         allow_no_archive=args.allow_no_archive, snapshot=snapshot, build_features=args.features,
         features_snapshot=feat_snapshot,
         out_dir=Path(args.out) if args.out else None, publish_dir=Path(args.publish) if args.publish else None,
-        write_predictions=not args.no_write_predictions,
+        write_predictions=not args.no_write_predictions, publish_warehouse_to_r2=args.warehouse,
     )
     for n in result.notes:
         log(f"note: {n}")
     print(result.files["report"])
-    return 0
+    return 2 if result.warehouse_error else 0
 
 
 if __name__ == "__main__":
