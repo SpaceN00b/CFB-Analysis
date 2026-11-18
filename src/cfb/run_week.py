@@ -73,7 +73,7 @@ def default_snapshot() -> Path | None:
         return None
     latest = snap / "LATEST"
     if latest.exists():
-        p = snap / latest.read_text().strip()
+        p = snap / latest.read_text(encoding="utf-8").strip()
         return p if p.exists() else None
     return None
 
@@ -116,7 +116,7 @@ def default_features_snapshot() -> Path | None:
         return None
     latest = snap / "FEATURES_LATEST"
     if latest.exists():
-        p = snap / latest.read_text().strip()
+        p = snap / latest.read_text(encoding="utf-8").strip()
         return p if p.exists() else None
     return None
 

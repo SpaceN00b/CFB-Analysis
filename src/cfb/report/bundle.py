@@ -104,9 +104,16 @@ def _local(ts, tz: ZoneInfo, tbd: bool = False) -> str | None:
     if ts is None or pd.isna(ts):
         return None
     t = pd.Timestamp(ts).tz_convert(tz)
+    # No "%-d" / "%-I": glibc-only, Windows strftime rejects them.
+    day = f"{t:%a %b} {t.day}"
     if tbd:
-        return t.strftime("%a %b %-d, time TBD")
-    return t.strftime("%a %b %-d, %-I:%M %p ") + (t.tzname() or "")
+        return f"{day}, time TBD"
+    hour = t.hour % 12 or 12
+    return f"{day}, {hour}:{t:%M %p} " + (t.tzname() or "")
+
+
+def _month_day(t: pd.Timestamp) -> str:
+    return f"{t:%b} {t.day}"
 
 
 def model_label(model_id: str) -> str:
@@ -519,7 +526,7 @@ def _team_profiles(slate: Slate, schedule: pd.DataFrame, outcomes: pd.DataFrame,
             p_home = float(primary.loc[gid, "p_home_win"]) if primary is not None and gid in primary.index else None
             item = {
                 "game_id": gid, "week": int(g["week"]), "season_type": str(g["season_type"]),
-                "date": pd.Timestamp(g["start_time_utc"]).tz_convert(tz).strftime("%b %-d"),
+                "date": _month_day(pd.Timestamp(g["start_time_utc"]).tz_convert(tz)),
                 "opp": str(g[f"{opp}_team"]), "opp_id": int(g[f"{opp}_id"]),
                 "site": "neutral" if g["neutral"] else ("home" if is_home else "away"),
                 "p_win": _f(p_home if is_home else (None if p_home is None else 1 - p_home)),
