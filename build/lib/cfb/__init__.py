@@ -1,1 +1,0 @@
-"""NCAA FBS game prediction."""
