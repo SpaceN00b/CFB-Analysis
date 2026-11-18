@@ -17,7 +17,7 @@ Steps, each logged:
                other seasons' rows in data/features are kept, seasons missing there are built
   5. predict   every model in the config for the season through the target week; built-in
                baselines and producers write data/predictions/<model_id>/
-  6. report    data/reports/<season>_<type>_<week>/: report.md, dashboard.html, bundle.json,
+  6. report    data/reports/<season>_<type>_<week>/: report.md, dashboard.html, bundle.json, summary.md,
                metrics/<model_id>.json (season to date, FBS vs FBS)
   7. publish   copy the report folder to --publish/<key>/ and the newest files to --publish/latest/
 
@@ -48,6 +48,7 @@ from .report.bundle import build_bundle, write_bundle
 from .report.config import DEFAULT_CONFIG, ReportConfig, load_config
 from .report.html import render_dashboard
 from .report.markdown import render_markdown
+from .report.summary import render_summary
 from .report.slate import Slate, known_results, resolve_slate
 
 PROJECT_FILES = Path("/mnt/project-files")
@@ -242,8 +243,10 @@ def write_report(warehouse: Warehouse, slate: Slate, predictions: dict, config: 
         "bundle": write_bundle(bundle, out_dir / "bundle.json"),
         "report": out_dir / "report.md",
         "dashboard": out_dir / "dashboard.html",
+        "summary": out_dir / "summary.md",
     }
     files["report"].write_text(render_markdown(bundle), encoding="utf-8")
+    files["summary"].write_text(render_summary(bundle), encoding="utf-8")
     files["dashboard"].write_text(render_dashboard(bundle), encoding="utf-8")
     # Season-to-date metrics documents (cfb.core.schemas contract). They go with the report,
     # not to data/eval/, which holds the 2018-2025 validation documents.
@@ -268,7 +271,7 @@ def publish(out_dir: Path, dest_root: Path, key: str) -> Path:
     shutil.copytree(out_dir, dest)
     latest = dest_root / "latest"
     latest.mkdir(parents=True, exist_ok=True)
-    for name in ("report.md", "dashboard.html", "bundle.json"):
+    for name in ("report.md", "dashboard.html", "bundle.json", "summary.md"):
         if (out_dir / name).exists():
             shutil.copy2(out_dir / name, latest / name)
     (latest / "KEY").write_text(key + "\n", encoding="utf-8")
@@ -410,6 +413,8 @@ def main(argv: list[str] | None = None) -> int:
     for n in result.notes:
         log(f"note: {n}")
     print(result.files["report"])
+    print("---- summary ----")
+    print(result.files["summary"].read_text(encoding="utf-8"), end="")
     return 0
 
 

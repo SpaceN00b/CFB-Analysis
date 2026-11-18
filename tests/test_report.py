@@ -208,8 +208,10 @@ def test_run_week_end_to_end(store, tmp_path):
                        market_models=("baseline_close",), build_features=False)
     pub = tmp_path / "published"
     res = run(store.root, cfg, season=LIVE, week=4, do_refresh=False, publish_dir=pub)
-    for key in ("report", "dashboard", "bundle"):
+    for key in ("report", "dashboard", "bundle", "summary"):
         assert res.files[key].exists()
+    summary = res.files["summary"].read_text()
+    assert summary.startswith(f"{LIVE} week 4") and "Season log loss" in summary and len(summary) < 2000
     assert res.out_dir == store.root / "reports" / f"{LIVE}_regular_04"
     metrics = json.loads(res.files["metrics_baseline_elo"].read_text())
     validate_metrics(metrics)
@@ -220,6 +222,7 @@ def test_run_week_end_to_end(store, tmp_path):
     assert set(p["season"]) == {LIVE} and p["week"].max() == 4
     assert (pub / f"{LIVE}_regular_04" / "dashboard.html").exists()
     assert (pub / "latest" / "KEY").read_text().strip() == f"{LIVE}_regular_04"
+    assert (pub / "latest" / "summary.md").read_text() == summary
     assert any("baseline" in n for n in res.notes)
 
 

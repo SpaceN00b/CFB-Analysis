@@ -30,8 +30,13 @@ python -m cfb.rankings --season 2026 --week 12 --source elo --top 25
 | 3 core | `build_core` | Always after a refresh |
 | 4 features | `unit_ratings` (all cutoffs) and every feature group for the season | `run.build_features` in the config; about 2.5 minutes on the 2026 snapshot. Rows of other seasons in `data/features` are kept; a season missing from a file is built too |
 | 5 predict | Every model in the config, for the season's games up to the target week | Built-in baselines and producers write `data/predictions/<model_id>/`; other models are read from there |
-| 6 report | `data/reports/<season>_<type>_<week>/` | `report.md`, `dashboard.html`, `bundle.json`, `metrics/<model_id>.json` |
+| 6 report | `data/reports/<season>_<type>_<week>/` | `report.md`, `dashboard.html`, `bundle.json`, `summary.md`, `metrics/<model_id>.json` |
 | 7 publish | Copies the folder to `--publish/<key>/` and the newest files to `--publish/latest/` | Optional |
+
+`summary.md` (also printed at the end of the run) is a few lines for the weekly chat post: season log
+loss of the primary model, the closing spread and Elo, last week's record, and the 3 largest edges
+vs the market. Reading it instead of `report.md` (about 50 KB) or `bundle.json` (about 600 KB) keeps
+the weekly session's context small.
 
 Season-to-date metrics go to the report folder, not `data/eval/`, which holds the 2018-2025
 validation documents written by `cfb.eval`.

@@ -132,8 +132,8 @@ games): model_v1 0.4679, model_v2 0.4387, closing spread 0.3955. Weeks 5-11 (414
 `dashboard/config.toml` has the producer `model_v2 = "cfb.predict:produce_v2"`;
 `primary = "model_v2"` since Josiah's approval on 2026-11-17, with `model_v1` among the
 compared models. `python -m cfb.run_week --primary model_v1` reports on the old model for one run. `python -m cfb.predict --model model_v2 matchup "A" "B"` works too. The
-stored-features tar `features_2014-2026_2026-11-17_p2.tar` (FEATURES_LATEST) holds the new
-groups for every season.
+stored-features tar named in `cfbd-data/FEATURES_LATEST` (P2 built `features_2014-2026_2026-11-17_p2.tar`;
+P1's `_p1` tar holds the same files plus `str_qb`) has the new groups for every season.
 
 ## Everything tried (season-forward 2018-2025, 6,024 games; differences against model_v1, paired SE over whole weeks)
 

@@ -7,9 +7,8 @@ Owned by the data workstream (W2). Regenerate the row counts with `python -m cfb
 
 | | |
 | --- | --- |
-| File | `cfbd-data/cfbd_data_2014-2026_2026-11-17.tar` in project files (name also in `cfbd-data/LATEST`) |
-| Size | 323,645,440 bytes, 2,740 files, uncompressed tar of `data/` |
-| SHA-256 | `7e92dc864383af8a041053db511e0bfd67b6cebf4a291bba26873f31be382dda` |
+| File | the tar named in `cfbd-data/LATEST` in project files (since 2026-11-17 22:10 UTC `cfbd_data_2014-2026_2026-11-17_players.tar`, which adds the player-level datasets below; table of snapshots in `cfbd-data/README.md`) |
+| W2 snapshot | `cfbd_data_2014-2026_2026-11-17.tar`, 323,645,440 bytes, 2,740 files, SHA-256 `7e92dc864383af8a041053db511e0bfd67b6cebf4a291bba26873f31be382dda`; every file is byte-identical in the players tar |
 | Pulled | Step 1 datasets 2026-11-16 19:12 UTC. Datasets below 2026-11-17 06:17 to 06:27 UTC. API v5.33.3 |
 | Current season | 2026 complete through week 11 (last completed game started 2026-11-15 18:00 UTC) |
 | Result of the pull | 651 requests, 0 failures |
@@ -20,7 +19,7 @@ Restore from the repo root:
 tar -xf /mnt/project-files/cfbd-data/$(cat /mnt/project-files/cfbd-data/LATEST)
 ```
 
-The earlier snapshot `cfbd_data_2014-2026.tar` (2026-11-16, step 1 datasets only) is kept unchanged.
+Each snapshot holds every file of the one before it. Only the newest is needed; older ones may be removed from project files.
 
 ## Datasets added in W2
 
