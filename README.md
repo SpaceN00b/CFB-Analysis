@@ -16,6 +16,7 @@ spread and total for every game, scored against the closing lines.
 | Win-probability model (`model_v1`) | done | `cfb.model`, `cfb.predict`, [docs/model.md](docs/model.md) |
 | Spread and total (phase 2) | done | `cfb.model.points_config`, `cfb.eval.points`, [docs/points.md](docs/points.md) |
 | Weekly report, dashboard | done | `cfb.report`, `cfb.run_week`, `dashboard/`, [docs/report.md](docs/report.md) |
+| Play text parsed into run direction, pass depth, air yards, targets, tacklers, penalties | done | `cfb.core.playtext`, [docs/play-text.md](docs/play-text.md) |
 
 Baselines to beat, season-forward on 2018 to 2025 (6,024 FBS vs FBS games): closing spread
 log loss 0.520, CFBD pregame Elo plus home field 0.549, home team always 0.679.
@@ -54,6 +55,7 @@ python -m cfb.features.build --list      # feature catalog: column, description,
 python -m cfb.features.build --tables    # which tables feature code may read, and from when
 python -m cfb.features.build --leak-test # leak-test the registered feature groups on the real data
 python -m cfb.core.samples               # rewrite samples/ from the snapshot
+python -m cfb.core.playtext              # play text -> data/core/play_{detail,players,penalties} (about 65 s)
 ```
 
 ## Layout
@@ -64,6 +66,7 @@ src/cfb/
   core/                            foundations                               (W1)
     game_index.py                  game_index, weeks, teams, game_pregame
     pbp.py, team_game.py           plays with shared definitions; two rows per game
+    playtext.py                    play text -> direction, depth, air yards, players, penalties
     policies.py, asof.py           per-table access rules; Warehouse and AsOfView
     leak.py                        scramble-after-cutoff leak test and source lint
     unit_ratings.py                unit_ratings contract and placeholder
@@ -83,7 +86,7 @@ docs/data-coverage.md              what the snapshot holds, by dataset and seaso
 | --- | --- |
 | `data/raw/<dataset>/<key>.json.gz` | exact API responses (source of truth) |
 | `data/tables/<dataset>/<key>.parquet` | flattened copy; nested objects become dotted columns, lists become JSON strings |
-| `data/core/<table>.parquet` | `game_index`, `team_game`, `pbp`, `teams`, `weeks`, `game_pregame` |
+| `data/core/<table>.parquet` | `game_index`, `team_game`, `pbp`, `teams`, `weeks`, `game_pregame`; `play_detail`, `play_players`, `play_penalties` from `cfb.core.playtext` |
 | `data/derived/unit_ratings.parquet` | unit ratings at every cutoff |
 | `data/features/<group>.parquet`, `catalog.json` | feature group outputs and their catalog |
 | `data/predictions/<model_id>/<season>_<type>_<week>.parquet` | predictions, baselines included |
