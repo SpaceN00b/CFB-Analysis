@@ -253,8 +253,8 @@ regular week 11.
 ## Depth charts (imported, not CFBD)
 
 `depth_charts`: team depth chart CSVs imported with `python -m cfb.depth_charts`, one dated
-partition per team and download. 67 P4 teams and Notre Dame (all but Arizona) downloaded
-2026-11-19 (5,745 rows, 99.9% matched to CFBD roster ids). Separate snapshot in project files `depth-charts/`. Details:
+partition per team and download. All 68 P4 teams and Notre Dame downloaded 2026-11-19
+(5,826 rows, 99.9% matched to CFBD roster ids). Separate snapshot in project files `depth-charts/`. Details:
 [depth-charts.md](depth-charts.md).
 
 ## Dated rating copies

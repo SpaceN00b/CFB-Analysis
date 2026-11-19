@@ -72,14 +72,15 @@ before the first download and no backtest yet.
 
 ## State (2026-11-19)
 
-67 of the 68 P4 teams plus Notre Dame: every ACC, Big Ten, Big 12 and SEC team except
-Arizona (no file), and Notre Dame. 5,745 rows; 99.9% matched to CFBD roster ids.
+All 68: every ACC, Big Ten, Big 12 and SEC team, and Notre Dame. 5,826 rows; 99.9%
+matched to CFBD roster ids.
 
 | Batch | Downloaded (asof_utc) | Teams | Rows |
 | --- | --- | --- | --- |
 | 1 | 2026-11-19T04:01:16Z (upload time) | 15: SEC except Alabama and Arkansas, plus Illinois | 1,339 |
 | 2 | 2026-11-19T04:06:01Z (latest file time) | 17: Alabama, Arkansas, Big 12 except Arizona | 1,395 |
 | 3 | 2026-11-19T04:22:18Z (latest file time) | 35: ACC, rest of the Big Ten, Notre Dame | 3,011 |
+| 4 | 2026-11-19T04:28:34Z (upload time) | Arizona | 81 |
 
 Batch 3 had per-team files plus two combined files (`ACC_batch4_all_teams.csv`,
 `ACC_Big10_batch_all_teams_1.csv`) with the same rows; Louisville was only in the second.
@@ -90,9 +91,9 @@ CFBD roster rows; the override picks 5226164, the one with 2026 Utah game stats 
 none).
 
 **Compared with the playing-time starters** built from the CFBDepth stat exports
-(`starters.csv`, 87% against the 7 lineup PNGs): they hold 1,247 of the 1,487 first-team
-starters on these 67 charts (84%). By group: OL 87%, QB 87% (58 of 67), DB 86%, LB 83%,
-WR 83%, DL 81%, RB 80%, TE 78%, EDGE 74%. QB1 differs at Arizona State (chart Jake Fette,
+(`starters.csv`, 87% against the 7 lineup PNGs): they hold 1,265 of the 1,510 first-team
+starters on these 68 charts (84%). By group: OL 87%, QB 87% (59 of 68), DB 86%, LB 84%,
+WR 82%, DL 81%, RB 80%, TE 78%, EDGE 74%. QB1 differs at Arizona State (chart Jake Fette,
 usage Cutter Boley), Clemson (Tait Reynolds / Trent Pearman), Kansas State (Avery Johnson /
 Blake Barnett), Maryland (Cardell Williams / Malik Washington), Michigan State (Alessio
 Milivojevic / Cam Fancher), Michigan (Tommy Carr / Bryce Underwood), Mississippi State (AJ
