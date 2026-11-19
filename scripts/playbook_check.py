@@ -3,7 +3,7 @@
     python -m cfb.core.build && python -m cfb.core.playtext
     python -m cfb.predict --model model_v2 season-forward          # 2025 predictions (late-2025 training rows)
     python -m cfb.predict --model model_v2 walk-forward --seasons 2026
-    python scripts/playbook_check.py [--data-dir data]
+    python scripts/playbook_check.py [--data-dir data] [--scope P4]
 
 Tendencies come from the detailed play text only (2025 week 9 on), so the rows are FBS vs FBS
 games from 2025 week 10 on. For each game, each team's tendencies use only its earlier games
@@ -30,6 +30,7 @@ import pandas as pd
 
 from cfb.lab import playbooks as pb
 
+SCOPE = "P4"
 K_PLAYS = 150.0
 W_PRIOR_SEASON = 0.5
 OFF_COLS = ("uc", "nh", "proe", "screen", "deep", "qbrun", "entropy")
@@ -134,6 +135,7 @@ def main(argv=None) -> int:
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--ridge", default="5,50,200", help="comma-separated ridge penalties to score")
     ap.add_argument("--cols", default=None, help="comma-separated subset of columns for the second stage")
+    ap.add_argument("--scope", default="P4", help="subset to report: P4 (68 teams incl. Notre Dame) or a conference")
     a = ap.parse_args(argv)
     games = pd.read_parquet(Path(a.data_dir) / "core" / "game_index.parquet")
     teams = pd.read_parquet(Path(a.data_dir) / "core" / "teams.parquet")
@@ -154,13 +156,16 @@ def main(argv=None) -> int:
     g = g[g["margin"] != 0].reset_index(drop=True)
     g["y"] = (g["margin"] > 0).astype(float)
     g["resid"] = g["margin"] - g["pred_margin"]
-    sec = set(teams.loc[(teams["season"] == 2026) & (teams["conference"] == "SEC"), "team_id"])
-    g["sec"] = g["home_id"].isin(sec) | g["away_id"].isin(sec)
+    ids = set(pb.scope_ids(teams[teams["season"] == 2026], a.scope))
+    g["sec"] = g["home_id"].isin(ids) | g["away_id"].isin(ids)
+    g["both"] = g["home_id"].isin(ids) & g["away_id"].isin(ids)
+    global SCOPE
+    SCOPE = a.scope
     print(f"rows {len(g)}: 2025 wk10+ {int((g.season == 2025).sum())}, 2026 {int((g.season == 2026).sum())}; "
-          f"SEC games {int(g.sec.sum())}")
+          f"{a.scope} ({len(ids)} teams) games {int(g.sec.sum())}, both teams {int(g.both.sum())}")
 
     print("\nOne-column slopes of the margin residual (points per SD of the home-minus-away value), all rows")
-    print(f"{'column':<10}{'pts/SD':>8}{'t':>7}{'  SEC pts/SD':>12}{'t':>7}")
+    print(f"{'column':<10}{'pts/SD':>8}{'t':>7}{'  ' + a.scope + ' pts/SD':>12}{'t':>7}")
     for c in cols:
         for sub, label in ((g, "all"), (g[g.sec], "sec")):
             x = sub[f"d_{c}"].to_numpy(float)
@@ -196,10 +201,12 @@ def score(g: pd.DataFrame, cols, lam: float) -> None:
         q1 = g.loc[te, "p_home_win"].to_numpy()
         yy = g.loc[te, "y"].to_numpy()
         ll = lambda q: -(yy * np.log(q) + (1 - yy) * np.log(1 - q))
-        out.append(pd.DataFrame({"week": wk, "sec": g.loc[te, "sec"].to_numpy(), "ll1": ll(q1), "ll2": ll(q2),
+        out.append(pd.DataFrame({"week": wk, "sec": g.loc[te, "sec"].to_numpy(), "both": g.loc[te, "both"].to_numpy(),
+                                 "ll1": ll(q1), "ll2": ll(q2),
                                  "b1": (q1 - yy) ** 2, "b2": (q2 - yy) ** 2}))
     r = pd.concat(out)
-    for sub, label in ((r, "all 2026 FBS games"), (r[r.sec], "2026 games with an SEC team")):
+    for sub, label in ((r, "all 2026 FBS games"), (r[r.sec], f"2026 games with a {SCOPE} team"),
+                       (r[r.both], f"2026 {SCOPE} vs {SCOPE}")):
         wk = sub.groupby("week").agg(d=("ll2", "sum"), d1=("ll1", "sum"), n=("ll1", "size"))
         diff = (wk["d"] - wk["d1"]) / wk["n"].sum()
         se = np.sqrt(len(wk) * ((diff - diff.mean()) ** 2).sum() / max(len(wk) - 1, 1))

@@ -1,4 +1,5 @@
-<title>SEC Team Playbooks</title>
+<meta charset="utf-8">
+<title>Team Playbooks</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@600&display=swap">
 <style>
@@ -118,11 +119,12 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
 .up { color: var(--good); } .down { color: var(--bad); }
 ul.summary { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 ul.summary li { color: var(--text-primary); }
+td.nw { white-space: nowrap; }
 </style>
 
 <div class="wrap">
   <header>
-    <h1 id="title">SEC Team Playbooks</h1>
+    <h1 id="title">Team Playbooks</h1>
     <div class="sub" id="subtitle"></div>
     <div class="controls">
       <label for="team">Team <select id="team"></select></label>
@@ -200,8 +202,8 @@ function renderOffense(t) {
       <td>${esc(r.top_player || "–")} <span class="small muted">${r.top_player_share != null ? pct(r.top_player_share) : ""}</span></td>
       <td class="small">${["1", "2", "3+"].map((k) => pct(r.downs[k] || 0)).join(" / ")}</td></tr>`));
   const players = table(
-    `<th>Player</th><th>Pos</th><th class="num">Touches</th><th class="num">Runs</th><th class="num">Targets</th><th class="num">Share</th><th class="num">Shotgun</th><th>Most common play</th><th class="num">Success</th><th>Style (player maps)</th>`,
-    t.players.map((r) => `<tr><td>${esc(r.player)}</td><td>${esc(r.pos)}</td><td class="num">${r.touches}</td><td class="num">${r.rushes}</td><td class="num">${r.targets}</td>
+    `<th>Player</th><th>Pos</th><th>Depth chart</th><th>Status</th><th class="num">Touches</th><th class="num">Runs</th><th class="num">Targets</th><th class="num">Share</th><th class="num">Shotgun</th><th>Most common play</th><th class="num">Success</th><th>Style (player maps)</th>`,
+    t.players.map((r) => `<tr><td>${esc(r.player)}</td><td>${esc(r.pos)}</td><td class="small">${esc(r.chart || "–")}</td><td class="small">${esc(r.injury || "–")}</td><td class="num">${r.touches}</td><td class="num">${r.rushes}</td><td class="num">${r.targets}</td>
       <td class="num">${pct(r.share, 1)}</td><td class="num">${pct(r.shotgun)}</td><td>${esc(r.top_play)} <span class="small muted">${pct(r.top_play_share)}</span></td>
       <td class="num">${pct(r.success)}</td><td class="small">${esc(r.style || "–")}</td></tr>`));
   $("#tab-offense").innerHTML = [
@@ -209,7 +211,7 @@ function renderOffense(t) {
     card("Most-called plays", `Formation x play type x direction x position of the ball carrier or target, out of ${t.plays} plays (sacks and throwaways left out). Directions are the offense's.`, tops),
     card("Formation", "The text only says Shotgun or nothing (under center, or a crew that did not write it). No personnel, pistol, motion or play action.", form),
     card("Play-type mix", "Share of the team's plays, with the FBS share as a line. Green or red success = 5+ points from FBS. QB runs include scrambles; the text cannot separate them.", mix),
-    card("Who gets the ball", "Top 10 by touches (rushes plus targets). Style labels come from the SEC player maps.", players),
+    card("Who gets the ball", "Top 10 by touches (rushes plus targets). Pos is the depth chart alignment where the player is charted (X, Z, Slot), else the roster position. Depth chart: position and string on the 2026-11-19 chart. Status: the CFBDepth injury list (2026-11-18) through the player maps; blank = not listed or not matched. Style labels come from the player maps.", players),
   ].join("");
 }
 
@@ -239,32 +241,36 @@ function renderDefense(t) {
   const groups = table(`<th>Play type faced</th><th class="num">Plays</th><th class="num">Share</th><th class="num">FBS</th><th class="num">Success allowed</th><th class="num">Shrunk</th><th class="num">FBS</th><th class="num">EPA</th>`,
     d.groups.map((r) => `<tr><td>${esc(r.group)}</td><td class="num">${r.n}</td><td class="num">${pct(r.share_faced, 1)}</td><td class="num muted">${pct(r.fbs_share, 1)}</td>
       <td class="num">${pct(r.success_allowed)}</td><td class="num ${cmpDef(r.shrunk, r.fbs_success, 0.04)}">${pct(r.shrunk)}</td><td class="num muted">${pct(r.fbs_success)}</td><td class="num">${num(r.epa_allowed)}</td></tr>`));
-  const defs = d.defenders.length ? table(`<th>Defender</th><th>Listed</th><th class="num">Plays made</th><th>Plays like (role model)</th><th>Where he makes plays</th><th class="num">Sacks</th><th class="num">Hurries</th><th class="num">PBU</th><th class="num">INT</th>`,
-    d.defenders.map((r) => `<tr><td>${esc(r.player)}</td><td>${esc(r.pos)}</td><td class="num">${r.events}</td><td>${esc(r.pred_role)} <span class="small muted">${pct(r.pred_p)}</span></td><td class="small">${esc(r.location)}</td>
-      <td class="num">${r.sacks}</td><td class="num">${r.hurries}</td><td class="num">${r.pbu}</td><td class="num">${r.ints}</td></tr>`)) : `<p class="hint">Player maps not found when this page was built.</p>`;
+  const defs = d.defenders.length ? table(`<th>Defender</th><th>Roster</th><th>Depth chart</th><th>Status</th><th class="num">Plays made</th><th>Plays like (role model)</th><th>Where he makes plays</th><th class="num">Sacks</th><th class="num">Hurries</th><th class="num">PBU</th><th class="num">INT</th>`,
+    d.defenders.map((r) => `<tr><td>${esc(r.player)}</td><td>${esc(r.pos)}</td><td class="small">${esc(r.chart_pos || "–")}</td><td class="small">${esc(r.injury || "–")}</td><td class="num">${r.events}</td><td>${r.pred_role ? `${esc(r.pred_role)} <span class="small muted">${pct(r.pred_p)}</span>` : "–"}</td><td class="small">${esc(r.location || "–")}</td>
+      <td class="num">${r.sacks}</td><td class="num">${r.hurries}</td><td class="num">${r.pbu}</td><td class="num">${r.ints}</td></tr>`)) : `<p class="hint">No defender credits found.</p>`;
   $("#tab-defense").innerHTML = [
     `<div class="card"><div class="facts">${facts}</div></div>`,
     card("Success allowed by play type", `Shrunk toward the FBS rate with ${20} plays. Green = allows less than FBS by 4+ points, red = more. Defensive fronts and coverages are not in the data.`, groups),
-    card("Most active defenders", "From the SEC player maps: tackles, sacks, hurries, breakups and interceptions, and the role their play locations look like.", defs),
+    card("Most active defenders", "Plays with a tackle, sack, hurry, breakup or interception credit. Role model and locations come from the player maps when they cover the team; otherwise those columns are blank.", defs),
   ].join("");
 }
 
-let sortKey = "team", sortDir = 1;
+let sortKey = "team", sortDir = 1, confFilter = "All";
 function renderCompare() {
   const cols = [
-    ["team", "Team", (v) => esc(v)], ["plays", "Plays", (v) => v], ["under_center_adj", "Under center", (v) => pct(v)],
+    ["team", "Team", (v) => esc(v)], ["conference", "Conf.", (v) => esc(v)], ["plays", "Plays", (v) => v], ["under_center_adj", "Under center", (v) => pct(v)],
     ["run_rate_uc", "Run rate UC", (v) => pct(v)], ["no_huddle_adj", "No huddle (adj.)", (v) => pct(v)],
     ["run_rate", "Run rate", (v) => pct(v)], ["proe", "Pass vs exp.", (v) => sgn(v)], ["rb_run", "RB runs", (v) => pct(v)],
     ["qb_run", "QB runs", (v) => pct(v)], ["screen", "Screens", (v) => pct(v)], ["deep", "Deep 20+", (v) => pct(v)],
     ["success", "Off. success", (v) => pct(v)], ["epa", "Off. EPA", (v) => num(v)], ["def_success", "Def. success allowed", (v) => pct(v)],
     ["def_epa", "Def. EPA allowed", (v) => num(v)], ["def_sack_rate", "Def. sack rate", (v) => pct(v, 1)],
   ];
-  const rows = [...DATA.league].sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * sortDir);
-  const head = cols.map(([k, l]) => `<th class="sortable${k === "team" ? "" : " num"}" data-k="${k}" tabindex="0">${l}</th>`).join("");
-  const body = rows.map((r) => `<tr>${cols.map(([k, , fmt]) => `<td class="${k === "team" ? "" : "num"}">${fmt(r[k])}</td>`).join("")}</tr>`);
-  $("#tab-compare").innerHTML = card("All SEC offenses and defenses", `FBS: run rate ${pct(m.fbs_run_rate)}, under center ${pct(m.fbs_under_center)}, no huddle ${pct(m.fbs_no_huddle)} (raw). Click a column to sort.`, table(head, body));
+  const rows = DATA.league.filter((r) => confFilter === "All" || r.conference === confFilter).sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * sortDir);
+  const txt = (k) => k === "team" || k === "conference";
+  const head = cols.map(([k, l]) => `<th class="sortable${txt(k) ? "" : " num"}" data-k="${k}" tabindex="0">${l}</th>`).join("");
+  const body = rows.map((r) => `<tr>${cols.map(([k, , fmt]) => `<td class="${txt(k) ? "nw" : "num"}">${fmt(r[k])}</td>`).join("")}</tr>`);
+  const opts = ["All", ...(m.conferences || [])].map((c) => `<option${c === confFilter ? " selected" : ""}>${esc(c)}</option>`).join("");
+  const filter = `<div class="controls"><label for="conf">Conference <select id="conf">${opts}</select></label> <span class="small muted">${rows.length} teams</span></div>`;
+  $("#tab-compare").innerHTML = card(`${esc(m.scope_label || m.conference)} offenses and defenses`, `FBS: run rate ${pct(m.fbs_run_rate)}, under center ${pct(m.fbs_under_center)}, no huddle ${pct(m.fbs_no_huddle)} (raw). Click a column to sort.`, filter + table(head, body));
+  $("#conf").addEventListener("change", (e) => { confFilter = e.target.value; renderCompare(); });
   document.querySelectorAll("#tab-compare th.sortable").forEach((th) => {
-    const go = () => { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : (k === "team" ? 1 : -1); sortKey = k; renderCompare(); };
+    const go = () => { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : (txt(k) ? 1 : -1); sortKey = k; renderCompare(); };
     th.addEventListener("click", go);
     th.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
   });
@@ -273,7 +279,7 @@ function renderCompare() {
 function renderMethod() {
   $("#tab-method").innerHTML = `<div class="card prose">
     <h2>What this is built from</h2>
-    <p>CFBD play-by-play text for ${m.season}, weeks ${m.weeks ? m.weeks.join(" to ") : "?"}, parsed by the project's play-text parser, with player names and positions matched to rosters (the same data as the SEC player maps). ${m.plays_fbs.toLocaleString()} FBS offensive plays set the FBS comparisons. Garbage time, kneels, spikes and plays wiped out by penalties are left out.</p>
+    <p>CFBD play-by-play text for ${m.season}, weeks ${m.weeks ? m.weeks.join(" to ") : "?"}, parsed by the project's play-text parser, with player names and positions matched to rosters (the same data as the player maps), and receiver alignment (X, Z, Slot) from the team depth charts downloaded 2026-11-19. ${m.plays_fbs.toLocaleString()} FBS offensive plays set the FBS comparisons. Garbage time, kneels, spikes and plays wiped out by penalties are left out.</p>
     <h3>What the text has</h3>
     <ul><li>"Shotgun" and "No Huddle" before the play. No word means under center, or a stat crew that did not write it.</li>
     <li>Run direction (left, middle, right), pass depth and direction, air yards, the ball carrier or intended receiver, tacklers, sacks and hurries.</li></ul>
@@ -285,19 +291,24 @@ function renderMethod() {
     <ul><li>No-huddle charting depends on the home stat crew: the venue alone explains 44% of the game-to-game variation. The adjusted share is the team's effect from a fit with a team term and a venue term over every FBS game. Under center is mostly the team (the venue adds 3 points of R²); it gets the same adjustment.</li>
     <li>Pass rate over expected uses an FBS logistic model on down, distance, field position, score, quarter and clock.</li></ul>
     <h3>Does it help the model?</h3>
-    <p>Tested 2026-11-18 as a second stage on model_v2 (scripts/playbook_check.py): nine tendency columns (under center, no huddle, pass rate over expected, screens, deep shots, QB runs, play-mix spread, sack and hurry rates), each from the team's earlier games only, refit before every 2026 week. Every version made 2026 log loss worse (all FBS games: +0.0025 to +0.0120 depending on the penalty; SEC games: +0.0016 to +0.0150). No huddle alone had the largest in-sample slope (-1.4 points per SD, t -2.7, 9 columns tried) and still did not help out of sample. Tendencies describe how a team plays; the model's efficiency ratings already carry how well.</p>
+    <p>Tested 2026-11-18 as a second stage on model_v2 (scripts/playbook_check.py): nine tendency columns (under center, no huddle, pass rate over expected, screens, deep shots, QB runs, play-mix spread, sack and hurry rates), each from the team's earlier games only, refit before every 2026 week. Every version made 2026 log loss worse (all FBS games: +0.0025 to +0.0120 depending on the penalty; games with a P4 or Notre Dame team: +0.0012 to +0.0090; P4 vs P4: +0.0017 to +0.0117). No huddle alone had the largest in-sample slope (-1.4 points per SD, t -2.7, 9 columns tried) and still did not help out of sample. Tendencies describe how a team plays; the model's efficiency ratings already carry how well.</p>
   </div>`;
 }
 
 function render() {
   const t = byName[$("#team").value];
-  $("#teamnote").textContent = `${t.plays} offensive plays in ${t.games} games`;
+  $("#teamnote").textContent = `${t.conference ? t.conference + " · " : ""}${t.plays} offensive plays in ${t.games} games`;
   renderOffense(t); renderSituations(t); renderDefense(t);
 }
 
 function init() {
   $("#subtitle").textContent = `${m.season} season, weeks ${m.weeks ? m.weeks.join("-") : "?"} · built ${m.built_utc} UTC from play-by-play text · experimental, not used by the model`;
-  $("#team").innerHTML = teams.map((t) => `<option>${esc(t.team)}</option>`).join("");
+  const label = m.scope_label || m.conference;
+  $("#title").textContent = `${label} team playbooks`;
+  document.title = `${label} Team Playbooks`;
+  const confs = [...new Set(teams.map((t) => t.conference || ""))].sort();
+  $("#team").innerHTML = confs.map((c) => `<optgroup label="${esc(c || "Other")}">${teams.filter((t) => (t.conference || "") === c)
+    .sort((a, b) => a.team.localeCompare(b.team)).map((t) => `<option>${esc(t.team)}</option>`).join("")}</optgroup>`).join("");
   let saved = null;
   try { saved = localStorage.getItem("pb-team"); } catch (e) {}
   if (saved && byName[saved]) $("#team").value = saved;
@@ -307,7 +318,7 @@ function init() {
     document.querySelectorAll("main > section").forEach((s) => { s.hidden = s.id !== "tab-" + b.dataset.tab; });
   }));
   render(); renderCompare(); renderMethod();
-  $("#foot").textContent = "Source: CFBD play-by-play (stat-crew text), CFBD rosters, Sportradar positions. Directions are the offense's left and right.";
+  $("#foot").textContent = "Source: CFBD play-by-play (stat-crew text), CFBD rosters, Sportradar positions, team depth charts (2026-11-19), CFBDepth injury list (2026-11-18). Directions are the offense's left and right.";
 }
 init();
 </script>

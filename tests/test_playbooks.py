@@ -76,3 +76,10 @@ def test_expected_pass_follows_down_and_distance():
     first_short = (p["down"] == 1) & (p["distance"] <= 3)
     assert q[third_long].mean() > 0.7 > 0.4 > q[first_short].mean()
     assert abs(q.mean() - p["dropback"].mean()) < 0.01
+
+
+def test_scope_ids_p4_includes_notre_dame():
+    ts = pd.DataFrame({"team_id": [1, 2, 3, 4, 5], "team": ["A", "B", "Notre Dame", "C", "D"],
+                       "conference": ["SEC", "Big Ten", "FBS Independents", "Sun Belt", "FBS Independents"]})
+    assert pb.scope_ids(ts, "P4") == [1, 2, 3]
+    assert pb.scope_ids(ts, "SEC") == [1]

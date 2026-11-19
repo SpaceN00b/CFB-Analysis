@@ -1,4 +1,4 @@
-"""Rough team playbooks from parsed play text (conference test bench).
+"""Rough team playbooks from parsed play text (P4 + Notre Dame test bench, or one conference).
 
 Experimental: no feature group or model reads this. It works on the detailed stat-crew text
 that `cfb.core.playtext` parses (every game from 2025 week 9 on), so the display season is 2026.
@@ -67,6 +67,11 @@ MIX_ORDER = ("RB run left", "RB run middle", "RB run right", "QB run", "WR/TE ru
              "Pass, no target", "Sack")
 DEF_GROUPS = ("RB run left", "RB run middle", "RB run right", "QB run", "Screen / behind LOS",
               "Short 1-9", "Intermediate 10-19", "Deep 20+")
+# Scopes: "P4" = ACC, Big Ten, Big 12 and SEC plus Notre Dame (the 68 charted teams); any other
+# value is read as one conference name.
+SCOPES = {"P4": {"conferences": ("ACC", "Big Ten", "Big 12", "SEC"), "teams": ("Notre Dame",),
+                 "label": "P4 + Notre Dame"}}
+CONF_SHORT = {"FBS Independents": "Independent"}
 K_DEF = 20.0           # success allowed shrunk toward the FBS rate with this many plays
 MIN_TOP_PLAY = 8       # plays for a top-play row
 MIN_PLAYER = 10        # touches for a player row
@@ -74,6 +79,15 @@ MIN_PLAYER = 10        # touches for a player row
 
 # ----------------------------------------------------------------------------------------------
 # Loading and labels
+
+
+def scope_ids(ts: pd.DataFrame, scope: str) -> list[int]:
+    """Team ids for a scope: "P4" (68 teams) or a single conference name."""
+    sc = SCOPES.get(scope.upper())
+    if sc is None:
+        return sorted(ts.loc[ts["conference"] == scope, "team_id"].astype(int))
+    m = ts["conference"].isin(sc["conferences"]) | ts["team"].isin(sc["teams"])
+    return sorted(ts.loc[m, "team_id"].astype(int))
 
 
 def load(data_dir="data", seasons=(2025, 2026)) -> dict:
@@ -291,7 +305,27 @@ def _top_plays(t: pd.DataFrame, n_top: int = 12) -> list[dict]:
     return rows
 
 
-def _players(t: pd.DataFrame, maps: dict | None) -> list[dict]:
+def _injury_index(maps: dict | None) -> dict[int, tuple]:
+    """athlete_id -> (status, last update) from the player maps' CFBDepth injury fields."""
+    out = {}
+    if maps:
+        for key in ("offense", "rb", "defense"):
+            for r in maps.get(key, {}).get("players", []):
+                if r.get("injury_status") and r.get("athlete_id") is not None:
+                    out[int(r["athlete_id"])] = (r["injury_status"], r.get("injury_date"))
+    return out
+
+
+def _chart_label(chart: dict, aid) -> str | None:
+    c = chart.get(int(aid)) if aid is not None and not pd.isna(aid) else None
+    if not c or c[0] is None:
+        return None
+    return f"{c[0]} {int(c[1])}" if c[1] is not None and not pd.isna(c[1]) else str(c[0])
+
+
+def _players(t: pd.DataFrame, maps: dict | None, chart: dict | None = None,
+             injuries: dict | None = None) -> list[dict]:
+    chart, injuries = chart or {}, injuries or {}
     style = {}
     if maps:
         for r in maps.get("offense", {}).get("players", []):
@@ -315,12 +349,34 @@ def _players(t: pd.DataFrame, maps: dict | None) -> list[dict]:
             "top_play": top.index[0], "top_play_share": pm._r(top.iloc[0] / len(s)),
             "success": pm._r(s["success"].astype(float).mean()),
             "style": style.get(int(aid)),
+            "chart": _chart_label(chart, aid),
+            "injury": injuries.get(int(aid), (None,))[0],
         })
     rows.sort(key=lambda r: -r["touches"])
     return rows[:10]
 
 
-def _defense(d: pd.DataFrame, fbs: pd.DataFrame, maps: dict | None, team: str) -> dict:
+def _defenders_from_plays(dp: pd.DataFrame, chart: dict, injuries: dict) -> list[dict]:
+    """Most active defenders from play credits when the player maps do not cover the team."""
+    if dp is None or not len(dp):
+        return []
+    rows = []
+    for aid, s in dp.groupby("athlete_id"):
+        roles = s["role"].value_counts()
+        rows.append({"player": s["player"].dropna().iloc[0] if s["player"].notna().any() else s["name"].iloc[0],
+                     "pos": s["position"].dropna().iloc[0] if s["position"].notna().any() else None,
+                     "chart_pos": _chart_label(chart, aid), "events": int(s["play_id"].nunique()),
+                     "pred_role": None, "pred_p": None, "location": None, "alignment": None,
+                     "sacks": int(roles.get("sacker", 0)), "hurries": int(roles.get("hurry", 0)),
+                     "pbu": int(roles.get("breakup", 0)), "ints": int(roles.get("interceptor", 0)),
+                     "injury": injuries.get(int(aid), (None,))[0]})
+    rows.sort(key=lambda r: -r["events"])
+    return rows[:8]
+
+
+def _defense(d: pd.DataFrame, fbs: pd.DataFrame, maps: dict | None, team: str,
+             dp: pd.DataFrame | None = None, chart: dict | None = None, injuries: dict | None = None) -> dict:
+    chart, injuries = chart or {}, injuries or {}
     rows = []
     for gname in DEF_GROUPS:
         s = d[d["group"] == gname]
@@ -341,6 +397,11 @@ def _defense(d: pd.DataFrame, fbs: pd.DataFrame, maps: dict | None, team: str) -
         ds.sort(key=lambda r: -r.get("events", 0))
         defenders = [{k: r.get(k) for k in ("player", "pos", "chart_pos", "events", "pred_role", "pred_p", "location",
                                               "alignment", "sacks", "hurries", "pbu", "ints")} for r in ds[:8]]
+        for r, src in zip(defenders, ds[:8]):
+            r["injury"] = src.get("injury_status") or injuries.get(int(src.get("athlete_id") or -1), (None,))[0]
+            r["chart_pos"] = _chart_label(chart, src.get("athlete_id")) or r.get("chart_pos")
+    if not defenders:
+        defenders = _defenders_from_plays(dp, chart, injuries)
     return {
         "plays": int(len(d)), "success_allowed": pm._r(d["success"].astype(float).mean()),
         "fbs_success": pm._r(fbs["success"].astype(float).mean()),
@@ -359,7 +420,7 @@ def _summary(o: dict) -> list[str]:
     f, lines = o["formation"], []
     uc = f["under_center"]
     if uc >= 0.15:
-        lines.append(f"Uses under center a lot for the SEC/FBS ({uc:.0%} of plays, FBS {f['fbs_under_center']:.0%}).")
+        lines.append(f"Uses under center a lot for FBS ({uc:.0%} of plays, FBS {f['fbs_under_center']:.0%}).")
     elif uc <= 0.02:
         lines.append(f"Almost always in shotgun ({1 - uc:.0%} of plays).")
     if f["run_rate_uc"] is not None and uc >= 0.03 and f["n_uc"] >= 20:
@@ -393,11 +454,13 @@ def _summary(o: dict) -> list[str]:
 
 
 def team_playbook(t: pd.DataFrame, fbs: pd.DataFrame, d: pd.DataFrame, fbs_def: pd.DataFrame,
-                  nh_adj: float | None, maps: dict | None, team: str) -> dict:
+                  nh_adj: float | None, maps: dict | None, team: str, conference: str | None = None,
+                  dp: pd.DataFrame | None = None, chart: dict | None = None,
+                  injuries: dict | None = None) -> dict:
     sg = t[t["shotgun"]]
     uc = t[~t["shotgun"]]
     o = {
-        "team": team,
+        "team": team, "conference": conference,
         "plays": int(len(t)), "games": int(t["game_id"].nunique()),
         "formation": {
             "shotgun": _share(t["shotgun"]), "under_center": _share(~t["shotgun"]),
@@ -416,8 +479,8 @@ def team_playbook(t: pd.DataFrame, fbs: pd.DataFrame, d: pd.DataFrame, fbs_def: 
         "mix": _mix_rows(t, fbs),
         "situations": _situation_rows(t, fbs),
         "top_plays": _top_plays(t),
-        "players": _players(t, maps),
-        "defense": _defense(d, fbs_def, maps, team),
+        "players": _players(t, maps, chart, injuries),
+        "defense": _defense(d, fbs_def, maps, team, dp, chart, injuries),
     }
     o["summary"] = _summary(o)
     return o
@@ -428,7 +491,7 @@ def _league_row(t: dict) -> dict:
     share = lambda g: mix[g]["share"] if g in mix else 0.0
     f = t["formation"]
     return {
-        "team": t["team"], "plays": t["plays"], "under_center": f["under_center"],
+        "team": t["team"], "conference": t.get("conference"), "plays": t["plays"], "under_center": f["under_center"],
         "under_center_adj": f.get("under_center_adj"), "run_rate_uc": f["run_rate_uc"],
         "no_huddle_adj": f["no_huddle_adj"], "run_rate": t["run_rate"], "proe": t["proe"],
         "rb_run": sum(share(g) for g in ("RB run left", "RB run middle", "RB run right")),
@@ -444,7 +507,7 @@ def _league_row(t: dict) -> dict:
 # Build
 
 
-def build(data_dir="data", season: int = 2026, conference: str = "SEC", maps_path: str | None = None) -> dict:
+def build(data_dir="data", season: int = 2026, conference: str = "P4", maps_path: str | None = None) -> dict:
     b = load(data_dir, (season,))
     p = label_plays(b)
     p = p[~p["garbage_time"].fillna(False).astype(bool)].reset_index(drop=True)
@@ -452,8 +515,9 @@ def build(data_dir="data", season: int = 2026, conference: str = "SEC", maps_pat
     teams = b["teams"]
     ts = teams[teams["season"] == season]
     fbs_ids = set(ts.loc[ts["fbs"].astype(bool), "team_id"].astype(int))
-    conf_ids = sorted(ts.loc[ts["conference"] == conference, "team_id"].astype(int))
+    conf_ids = scope_ids(ts, conference)
     name = {int(i): n for i, n in zip(ts["team_id"], ts["team"])}
+    conf_of = {int(i): CONF_SHORT.get(c, c) for i, c in zip(ts["team_id"], ts["conference"])}
     fbs = p[p["offense_id"].isin(fbs_ids)]
     fbs_def = p[p["defense_id"].isin(fbs_ids)]
     scope = p[p["offense_id"].isin(fbs_ids) | p["defense_id"].isin(fbs_ids)].assign(uc=lambda x: ~x["shotgun"])
@@ -463,19 +527,34 @@ def build(data_dir="data", season: int = 2026, conference: str = "SEC", maps_pat
     mp = Path(maps_path) if maps_path else Path(data_dir) / "lab" / f"player_maps_{season}_{conference.lower()}.json"
     if mp.exists():
         maps = json.loads(mp.read_text(encoding="utf-8"))
+    injuries = _injury_index(maps)
+    info = b["info"][b["info"]["season"] == season]
+    chart = {}
+    if "chart_pos" in info:
+        ci = info.dropna(subset=["chart_pos"])
+        chart = {int(a): (pos, dep) for a, pos, dep in zip(ci["athlete_id"], ci["chart_pos"], ci["chart_depth"])}
+    dpl = b["players"]
+    dpl = dpl[(dpl["side"] == "defense") & dpl["play_id"].isin(p["play_id"])].drop(columns=["season"], errors="ignore")
+    dpl = dpl.merge(p[["play_id", "defense_id"]], on="play_id")
+    dpl = dpl[dpl["team_id"] == dpl["defense_id"]].merge(
+        info[["athlete_id", "player", "position"]].drop_duplicates("athlete_id"), on="athlete_id", how="left")
     out = []
     for tid in conf_ids:
         t = p[p["offense_id"] == tid]
         d = p[p["defense_id"] == tid]
         if not len(t):
             continue
-        tb = team_playbook(t, fbs, d, fbs_def, float(nh.get(tid, np.nan)), maps, name[tid])
+        tb = team_playbook(t, fbs, d, fbs_def, float(nh.get(tid, np.nan)), maps, name[tid], conf_of[tid],
+                           dpl[dpl["defense_id"] == tid], chart, injuries)
         tb["formation"]["under_center_adj"] = pm._r(uc.get(tid, np.nan))
         out.append(tb)
     weeks = sorted(p["week"].unique().tolist())
     return {
         "meta": {
             "season": season, "conference": conference,
+            "scope_label": SCOPES.get(conference.upper(), {}).get("label", conference),
+            "conferences": sorted({conf_of[i] for i in conf_ids}),
+            "injuries": len(injuries) > 0,
             "built_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"),
             "weeks": [int(weeks[0]), int(weeks[-1])] if weeks else None,
             "plays_fbs": int(len(fbs)), "player_maps": maps is not None,
@@ -506,8 +585,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--season", type=int, default=2026)
-    ap.add_argument("--conference", default="SEC")
-    ap.add_argument("--player-maps", default=None, help="player maps JSON (default data/lab/player_maps_<season>_<conf>.json)")
+    ap.add_argument("--conference", default="P4",
+                    help="P4 = ACC, Big Ten, Big 12, SEC + Notre Dame (68 teams), or one conference name")
+    ap.add_argument("--player-maps", default=None,
+                    help="player maps JSON (default data/lab/player_maps_<season>_<conference lower>.json)")
     ap.add_argument("--out", default=None, help="output folder (default data/lab)")
     a = ap.parse_args(argv)
     res = build(a.data_dir, a.season, a.conference, a.player_maps)
