@@ -10,12 +10,14 @@ spread and total for every game, scored against the closing lines.
 | Part | State | Where |
 | --- | --- | --- |
 | Data pipeline, 2014 to 2026 | done | `cfb.ingest`, coverage in [docs/data-coverage.md](docs/data-coverage.md) |
+| Sportradar play-by-play, 2013 on (players per play) | 2026 season pulled | `cfb.sportradar`, [docs/sportradar.md](docs/sportradar.md) |
 | Foundations: core tables, point-in-time access, leak test, feature interface, file contracts | done | `cfb.core`, `cfb.features.base`, [docs/foundations.md](docs/foundations.md) |
 | Feature groups: strength, matchup, coaching, context, market | done | `cfb.features.<area>`, docs/strength.md, matchup.md, coaching.md, context.md |
 | Evaluation and baselines | done | `cfb.eval`, [docs/eval.md](docs/eval.md) |
 | Win-probability model (`model_v1`) | done | `cfb.model`, `cfb.predict`, [docs/model.md](docs/model.md) |
 | Spread and total (phase 2) | done | `cfb.model.points_config`, `cfb.eval.points`, [docs/points.md](docs/points.md) |
 | Weekly report, dashboard | done | `cfb.report`, `cfb.run_week`, `dashboard/`, [docs/report.md](docs/report.md) |
+| Play text parsed into run direction, pass depth, air yards, targets, tacklers, penalties | done | `cfb.core.playtext`, [docs/play-text.md](docs/play-text.md) |
 | Depth chart import (dated snapshots, all 68 P4 + Notre Dame on 2026-11-19) | done | `cfb.depth_charts`, [docs/depth-charts.md](docs/depth-charts.md) |
 
 Baselines to beat, season-forward on 2018 to 2025 (6,024 FBS vs FBS games): closing spread
@@ -55,6 +57,7 @@ python -m cfb.features.build --list      # feature catalog: column, description,
 python -m cfb.features.build --tables    # which tables feature code may read, and from when
 python -m cfb.features.build --leak-test # leak-test the registered feature groups on the real data
 python -m cfb.core.samples               # rewrite samples/ from the snapshot
+python -m cfb.core.playtext              # play text -> data/core/play_{detail,players,penalties} (about 65 s)
 python -m cfb.depth_charts import PATH --asof <download time>   # team depth chart CSVs, docs/depth-charts.md
 ```
 
@@ -67,6 +70,7 @@ src/cfb/
   core/                            foundations                               (W1)
     game_index.py                  game_index, weeks, teams, game_pregame
     pbp.py, team_game.py           plays with shared definitions; two rows per game
+    playtext.py                    play text -> direction, depth, air yards, players, penalties
     policies.py, asof.py           per-table access rules; Warehouse and AsOfView
     leak.py                        scramble-after-cutoff leak test and source lint
     unit_ratings.py                unit_ratings contract and placeholder
@@ -78,6 +82,7 @@ src/cfb/
 samples/                           sample prediction and metrics files
 docs/foundations.md                contracts in detail
 docs/data-coverage.md              what the snapshot holds, by dataset and season
+docs/sportradar.md                 Sportradar play-by-play source, limits, coverage
 ```
 
 `data/` is git-ignored:
@@ -86,7 +91,7 @@ docs/data-coverage.md              what the snapshot holds, by dataset and seaso
 | --- | --- |
 | `data/raw/<dataset>/<key>.json.gz` | exact API responses (source of truth) |
 | `data/tables/<dataset>/<key>.parquet` | flattened copy; nested objects become dotted columns, lists become JSON strings |
-| `data/core/<table>.parquet` | `game_index`, `team_game`, `pbp`, `teams`, `weeks`, `game_pregame` |
+| `data/core/<table>.parquet` | `game_index`, `team_game`, `pbp`, `teams`, `weeks`, `game_pregame`; `play_detail`, `play_players`, `play_penalties` from `cfb.core.playtext` |
 | `data/derived/unit_ratings.parquet` | unit ratings at every cutoff |
 | `data/features/<group>.parquet`, `catalog.json` | feature group outputs and their catalog |
 | `data/predictions/<model_id>/<season>_<type>_<week>.parquet` | predictions, baselines included |

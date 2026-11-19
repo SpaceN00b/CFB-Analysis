@@ -127,6 +127,8 @@ def test_on_demand_matchup(wh):
     for group in GROUPS:
         out = run_group(group, wh, game)
         assert len(out) == 2 and set(out["team_id"]) == {1, 8}
+        if min(c.first_season for c in group.columns) > int(game["season"].iloc[0]):
+            continue   # the play-text groups start in 2025
         assert out.drop(columns=["game_id", "team_id"]).notna().any(axis=None)
 
 
