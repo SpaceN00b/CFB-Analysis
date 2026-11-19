@@ -36,6 +36,7 @@ REPO_CONFIG = Path("dashboard") / "config.toml"
 # Secret name -> environment variable that overrides the keyring.
 SECRET_ENV = {
     "cfbd_api_key": "CFBD_API_KEY",
+    "sportradar_api_key": "SPORTRADAR_API_KEY",
     "r2_account_id": "R2_ACCOUNT_ID",
     "r2_access_key_id": "R2_ACCESS_KEY_ID",
     "r2_secret_access_key": "R2_SECRET_ACCESS_KEY",
