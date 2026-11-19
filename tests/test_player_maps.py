@@ -97,3 +97,34 @@ def test_clean_inc_model_puts_a_shared_excess_on_the_qb():
     assert qb[1] > qb[2] + 0.5 and qb[1] > qb[3] + 0.5
     assert rec[13] > max(rec[11], rec[12], rec[14]) + 0.5
     assert abs(rec[11] - rec[12]) < 0.4
+
+
+def test_chart_role_maps_team_labels():
+    from cfb.lab.player_maps import chart_role
+    assert chart_role("LDE", "DL", three_man=False) == ("EDGE", "L")
+    assert chart_role("DE", "DL", three_man=True) == ("IDL", None)
+    assert chart_role("JACK", "EDGE", three_man=True) == ("EDGE", None)
+    assert chart_role("RCB", "DB", three_man=False) == ("CB", "R")
+    assert chart_role("STAR", "DB", three_man=False) == ("NB", None)
+    assert chart_role("SS", "DB", three_man=False) == ("S", None)
+    assert chart_role("WLB", "LB", three_man=False) == ("LB", None)
+    assert chart_role("MONEY", "LB", three_man=False) == ("NB", None)
+
+
+def test_depth_chart_roles_keeps_highest_listing(tmp_path):
+    from cfb.lab.player_maps import depth_chart_roles
+    d = tmp_path / "tables" / "depth_charts"
+    d.mkdir(parents=True)
+    ts = pd.Timestamp("2026-11-19T04:00:00Z")
+    pd.DataFrame({
+        "season": 2026, "asof_utc": ts, "team": "A",
+        "unit": ["defense", "defense", "defense", "offense", "special_teams"],
+        "position": ["DE", "JACK", "NB", "WR-SL", "KR"], "pos_group": ["DL", "EDGE", "DB", "WR", "ST"],
+        "depth": [1, 1, 2, 1, 1], "athlete_id": [1, 2, 3, 4, 3],
+    }).to_parquet(d / "2026-11-19_A.parquet")
+    c = depth_chart_roles(tmp_path).set_index("athlete_id")
+    assert c.loc[1, "chart_role"] == "IDL"       # three-man front: the chart lists a JACK
+    assert c.loc[2, "chart_role"] == "EDGE"
+    assert c.loc[3, "chart_pos"] == "NB" and c.loc[3, "chart_role"] == "NB"
+    assert c.loc[4, "chart_align"] == "SLOT"
+    assert depth_chart_roles(tmp_path / "none").empty

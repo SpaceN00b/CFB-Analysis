@@ -57,6 +57,7 @@ button:focus-visible, select:focus-visible, tr.row-link:focus-visible { outline:
 .card h3 { font-size: 13px; margin: 14px 0 6px; font-weight: 600; color: var(--text-secondary); }
 .hint { color: var(--text-muted); font-size: 12px; margin: 0 0 10px; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
+[hidden] { display: none !important; }
 .split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
 .facts { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 4px 0 2px; }
@@ -151,6 +152,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const pct = (x, d = 0) => x == null ? "\u2013" : (x * 100).toFixed(d) + "%";
 const num = (x, d = 1) => x == null ? "\u2013" : Number(x).toFixed(d);
 const sgn = (x, d = 1) => x == null ? "\u2013" : (x > 0 ? "+" : "") + Number(x).toFixed(d);
+const ordinal = n => n + (n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th");
 const pp = x => x == null ? "\u2013" : sgn(x * 100, 0) + " pts";
 
 function seqFill(share) {
@@ -230,19 +232,25 @@ function renderDefense() {
   if (!rows.find(p => p.athlete_id === state.sel.def)) state.sel.def = rows.length ? rows.slice().sort((a, b) => b.events - a.events)[0].athlete_id : null;
   const p = rows.find(r => r.athlete_id === state.sel.def);
   const conf = f.labels.map(l => `<tr><th scope="row">${esc(l)}</th>` + f.labels.map(k => `<td class="num">${(f.confusion[l] || {})[k] ?? 0}</td>`).join("") + `</tr>`).join("");
+  const chart = m.labels_from === "depth charts", cc = m.chart_check || {};
+  const sideTxt = Object.entries(cc.side || {}).filter(([, v]) => v.z != null).map(([k, v]) => `${esc(k)}: chart-left ${pct(v.L.offense_left_share)} vs chart-right ${pct(v.R.offense_left_share)} of plays to the offense's left (n ${v.L.n}/${v.R.n}, z ${num(v.z, 2)})`).join("; ");
   let h = `<div class="card"><h2>Role model, tested on SEC defenders it never saw</h2>
-    <p class="hint">Trained on ${f.n_train.toLocaleString()} non-SEC FBS defender-seasons (2025 week 9 on and 2026), from where each one is credited with tackles, sacks, hurries, breakups and interceptions. Scored against listed positions.</p>
+    <p class="hint">${chart ? `Labels are the teams' own depth chart positions (downloaded ${esc(DATA.meta.chart_asof || "")}, P4 and Notre Dame). Trained on ${f.n_train.toLocaleString()} charted non-SEC defenders (2026), tested on charted SEC defenders` : `Trained on ${f.n_train.toLocaleString()} non-SEC FBS defender-seasons (2025 week 9 on and 2026). Scored against listed positions`}, from where each one is credited with tackles, sacks, hurries, breakups and interceptions.</p>
     <div class="facts">
-      <div class="fact"><div class="k">5 roles</div><div class="v">${pct(f.acc)}</div><div class="d">correct on ${f.n_test} SEC players; guessing the most common role: ${pct(f.baseline)}</div></div>
+      <div class="fact"><div class="k">${f.labels.length} roles</div><div class="v">${pct(f.acc)}</div><div class="d">correct on ${f.n_test} SEC players; guessing the most common role: ${pct(f.baseline)}</div></div>
+      ${chart ? `<div class="fact"><div class="k">Same players, nickels left out</div><div class="v">${pct(cc.chart_model_acc_same_players)}</div><div class="d">chart-trained model; the old CFBD-label model gets ${pct(cc.cfbd_model_acc_on_chart)} (n ${cc.n_non_nickel})</div></div>
+      <div class="fact"><div class="k">CFBD position = chart role</div><div class="v">${pct(cc.cfbd_label_agree)}</div><div class="d">of ${cc.cfbd_label_known} SEC defenders with a specific CFBD position</div></div>` : ""}
       <div class="fact"><div class="k">3 groups (DL / LB / DB)</div><div class="v">${pct(c.acc)}</div><div class="d">correct on ${c.n_test}; most common group: ${pct(c.baseline)}</div></div>
     </div>
     <details><summary>Listed role (rows) against model role (columns)</summary><div class="table-scroll"><table><thead><tr><th></th>${f.labels.map(l => `<th class="num">${esc(l)}</th>`).join("")}</tr></thead><tbody>${conf}</tbody></table></div>
-    <p class="hint">Edge and interior linemen are the weak spot: 3-4 outside linebackers and stand-up ends are often listed as LB or DL, and many make plays where off-ball linebackers do.</p></details></div>`;
+    <p class="hint">${chart ? "Nickels are the hardest: they make plays like corners, safeties and linebackers. DE is an edge in a four-man front and an interior end when the chart also lists a stand-up edge (JACK, OLB, ...)." : "Edge and interior linemen are the weak spot: 3-4 outside linebackers and stand-up ends are often listed as LB or DL, and many make plays where off-ball linebackers do."}</p></details>
+    ${sideTxt ? `<p class="hint"><b>Chart sides.</b> ${sideTxt}. Chart L/R is the defense's left and right, and corners and ends flip with the formation, so the lean is small.</p>` : ""}</div>`;
   h += `<div class="split"><div class="card"><h2>${esc(state.team)} defenders</h2>
     <p class="hint">Players with at least ${m.min_events} credited plays in ${DATA.meta.season}. A <span class="pill flag">differs</span> tag means the model's role is not the listed one. Select a row for the field map.</p>` +
     table("deft", rows, [
       {k: "player", label: "Player", fmt: (v, r) => `${esc(v)}${r.mismatch ? ' <span class="pill flag">differs</span>' : ""}`},
-      {k: "pos", label: "Listed", fmt: (v, r) => esc(v || "\u2013") + (r.sr_pos && r.sr_pos !== v ? ` <span class="muted small">(${esc(r.sr_pos)})</span>` : "")},
+      {k: "chart_pos", label: "Depth chart", sortv: r => r.chart_pos || "~", fmt: (v, r) => v ? `${esc(v)} <span class="muted small">${r.chart_depth ? "#" + r.chart_depth : ""}</span>` : `<span class="muted">\u2013</span>`},
+      {k: "pos", label: "CFBD", fmt: (v, r) => esc(v || "\u2013") + (r.sr_pos && r.sr_pos !== v ? ` <span class="muted small">(${esc(r.sr_pos)})</span>` : "")},
       {k: "pred_role", label: "Model role", fmt: (v, r) => `${esc(v)} <span class="muted small">${pct(r.pred_p)}</span>`},
       {k: "location", label: "Where he makes plays"},
       {k: "events", label: "Plays", num: true},
@@ -256,7 +264,7 @@ function renderDefense() {
 function defDetail(p) {
   const total = DEF_ROWS.reduce((s, r) => s + DIRS.reduce((t, c) => t + (p.grid[`${r}|${c}`] || 0), 0), 0);
   const unlocated = p.events - total;
-  let h = `<h2>${esc(p.player)}</h2><p class="hint">${esc(p.team)} \u00b7 listed ${esc(p.pos || "\u2013")}${p.sr_pos ? " (Sportradar " + esc(p.sr_pos) + ")" : ""} \u00b7 ${p.games} games \u00b7 ${p.events} credited plays</p>`;
+  let h = `<h2>${esc(p.player)}</h2><p class="hint">${esc(p.team)} \u00b7 ${p.chart_pos ? "depth chart " + esc(p.chart_pos) + (p.chart_depth ? " (" + ordinal(p.chart_depth) + " team)" : "") + " \u00b7 " : ""}CFBD ${esc(p.pos || "\u2013")}${p.sr_pos ? " (Sportradar " + esc(p.sr_pos) + ")" : ""} \u00b7 ${p.games} games \u00b7 ${p.events} credited plays</p>`;
   h += `<div class="facts"><div class="fact"><div class="k">Approximate alignment</div><div class="d" style="font-size:14px;color:var(--text-primary);font-weight:600">${esc(p.alignment)}</div></div>
         <div class="fact"><div class="k">Where he makes plays</div><div class="d" style="font-size:14px;color:var(--text-primary)">${esc(p.location)}</div></div></div>`;
   h += `<h3>Credited plays by field zone</h3>` + fieldGrid({
@@ -274,11 +282,25 @@ function renderOffense() {
   const rows = DATA.offense.players.filter(p => p.team === state.team);
   if (!rows.find(p => p.athlete_id === state.sel.off)) state.sel.off = rows.length ? rows.slice().sort((a, b) => (b.targets + b.rushes) - (a.targets + a.rushes))[0].athlete_id : null;
   const p = rows.find(r => r.athlete_id === state.sel.off);
-  let h = `<div class="split"><div class="card"><h2>${esc(state.team)} ball carriers, targets and passers</h2>
+  const A = DATA.offense.by_align || [];
+  let h = A.length ? `<div class="card"><h2>Where each chart position is targeted (all P4 and Notre Dame, ${DATA.meta.season})</h2>
+    <p class="hint">Receivers grouped by their team's depth chart label. Direction is the offense's; ${pct(DATA.offense.left_share)} of all targets go left, so compare each row with that.</p>` +
+    table("algt", A, [
+      {k: "align", label: "Position"}, {k: "targets", label: "Targets", num: true}, {k: "players", label: "Players", num: true},
+      {k: "adot", label: "Avg depth", num: true, fmt: v => num(v)},
+      {k: "beh", label: "Behind LOS", num: true, sortv: r => r.depth["Behind LOS"], fmt: (v, r) => pct(r.depth["Behind LOS"])},
+      {k: "sh", label: "1-9", num: true, sortv: r => r.depth["Short 1-9"], fmt: (v, r) => pct(r.depth["Short 1-9"])},
+      {k: "in", label: "10-19", num: true, sortv: r => r.depth["Inter 10-19"], fmt: (v, r) => pct(r.depth["Inter 10-19"])},
+      {k: "dp", label: "20+", num: true, sortv: r => r.depth["Deep 20+"], fmt: (v, r) => pct(r.depth["Deep 20+"])},
+      {k: "l", label: "Left", num: true, sortv: r => r.dir.left, fmt: (v, r) => pct(r.dir.left)},
+      {k: "m", label: "Middle", num: true, sortv: r => r.dir.middle, fmt: (v, r) => pct(r.dir.middle)},
+      {k: "r", label: "Right", num: true, sortv: r => r.dir.right, fmt: (v, r) => pct(r.dir.right)},
+    ], {sortKey: "targets"}) + `</div>` : "";
+  h += `<div class="split"><div class="card"><h2>${esc(state.team)} ball carriers, targets and passers</h2>
     <p class="hint">Players with at least 15 targets, 30 rushes or 60 passes in ${DATA.meta.season}. Style is a plain reading of where the player's targets or runs go. Select a row for the maps.</p>` +
     table("offt", rows, [
       {k: "player", label: "Player"},
-      {k: "pos", label: "Pos", fmt: v => esc(v || "\u2013")},
+      {k: "chart_pos", label: "Pos", sortv: r => r.chart_pos || r.pos || "~", fmt: (v, r) => v ? `${esc(v)}${r.chart_depth > 1 ? ` <span class="muted small">#${r.chart_depth}</span>` : ""}` : `${esc(r.pos || "\u2013")} <span class="muted small">CFBD</span>`},
       {k: "style", label: "Style"},
       {k: "targets", label: "Tgt", num: true},
       {k: "rushes", label: "Rush", num: true},
@@ -293,7 +315,7 @@ function renderOffense() {
   return h;
 }
 function offDetail(p) {
-  let h = `<h2>${esc(p.player)}</h2><p class="hint">${esc(p.team)} \u00b7 ${esc(p.pos || "\u2013")} \u00b7 ${p.games} games \u00b7 ${esc(p.style)}</p><div class="facts">`;
+  let h = `<h2>${esc(p.player)}</h2><p class="hint">${esc(p.team)} \u00b7 ${esc(p.chart_pos || p.pos || "\u2013")}${p.chart_pos && p.chart_depth ? " (" + ordinal(p.chart_depth) + " team)" : ""} \u00b7 ${p.games} games \u00b7 ${esc(p.style)}</p><div class="facts">`;
   if (p.targets) h += `<div class="fact"><div class="k">Targets</div><div class="v">${p.targets}</div><div class="d">${pct(p.tgt_share)} of team \u00b7 avg depth ${num(p.adot)} \u00b7 catch ${pct(p.catch_rate)} \u00b7 YAC ${num(p.yac)}</div></div>`;
   if (p.rushes) h += `<div class="fact"><div class="k">Rushes</div><div class="v">${p.rushes}</div><div class="d">${pct(p.rush_share)} of team \u00b7 ${num(p.ypc)} yds \u00b7 success ${pct(p.rush_success)} \u00b7 stuffed ${pct(p.stuff_rate)}</div></div>`;
   if (p.attempts) h += `<div class="fact"><div class="k">Passes</div><div class="v">${p.attempts}</div><div class="d">completion ${pct(p.comp_pct)} \u00b7 avg depth ${num(p.pass_adot)} \u00b7 ${p.ints} INT</div></div>`;
@@ -404,6 +426,17 @@ function renderReceiving() {
       {k: "verdict", label: "Reading", fmt: v => vpill(v)},
     ], {sortKey: "team", sortDir: 1, selKey: "team", selected: state.team, onSel: true}) + `</div>`;
   selHandlers.rect = v => { setTeam(v); };
+  const BA = m.by_align || [];
+  if (BA.length) h += `<div class="card"><h2>Clean incompletions by depth chart position (all P4 and Notre Dame, ${DATA.meta.season})</h2>
+    <p class="hint">Expected = an average FBS receiver on the same throws from the same QBs. Flagged = receivers at that position with an effect z \u2265 ${m.effect_z}. Charted P4 receivers sit below expected as a group because the fit includes every FBS receiver.</p>` +
+    table("rbat", BA, [
+      {k: "align", label: "Position"}, {k: "targets", label: "Unhurried tgt", num: true},
+      {k: "adot", label: "Avg depth", num: true, fmt: v => num(v)},
+      {k: "clean_inc", label: "Clean inc.", num: true, fmt: v => pct(v, 1)},
+      {k: "expected", label: "Expected", num: true, fmt: v => pct(v, 1)},
+      {k: "d", label: "Diff", num: true, sortv: r => r.clean_inc - r.expected, fmt: (v, r) => pp(r.clean_inc - r.expected)},
+      {k: "receivers", label: "Receivers", num: true}, {k: "flagged", label: "Flagged", num: true},
+    ], {sortKey: "targets"}) + `</div>`;
   if (!t) return h;
   h += `<div class="card"><h2>${esc(t.team)}</h2><div class="verdict">${vpill(t.verdict)}</div>
     <p class="hint">Effects come from one logistic model fit on ${m.rows.toLocaleString()} unhurried FBS targets (2025 week 9 on and 2026) with shrunk effects for each passer, receiver and defense. A receiver's effect is measured against the other receivers his QBs threw to; a QB's against the other QBs his receivers caught from. A flag needs z \u2265 ${m.effect_z}; "watch" is 1.64 to ${m.effect_z}.</p>`;
@@ -417,7 +450,7 @@ function renderReceiving() {
     {k: "hurried_share", label: "Hurried share", num: true, fmt: v => pct(v)},
     {k: "flag", label: "", fmt: flagCell}], {sortKey: "targets"});
   h += `<h3>Receivers</h3>` + table("rect2", t.receivers, [
-    {k: "player", label: "Receiver"}, {k: "pos", label: "Pos", fmt: v => esc(v || "\u2013")},
+    {k: "player", label: "Receiver"}, {k: "chart_pos", label: "Pos", sortv: r => r.chart_pos || r.pos || "~", fmt: (v, r) => esc(v || r.pos || "\u2013")},
     {k: "targets", label: "Unhurried tgt", num: true}, {k: "adot", label: "Avg depth", num: true, fmt: v => num(v)},
     {k: "clean_inc", label: "Clean inc.", num: true, fmt: v => pct(v, 1)},
     {k: "teammates", label: "Teammates", num: true, fmt: v => pct(v, 1)},
@@ -444,7 +477,7 @@ function renderMethod() {
   return `<div class="card prose"><h2>How this is built</h2>
   <p>Source: CFBD play-by-play text (the stat crew's own wording, which names direction, pass depth, tacklers, breakups and hurries) parsed by <code>cfb.core.playtext</code>. That text exists for every game from 2025 week 9 on; earlier games only have a condensed version without these details. Display season ${M.season}, weeks ${M.weeks ? M.weeks.join("\u2013") : "?"}; league-wide fits use ${M.fit_seasons.join(" and ")} (2025 from week 9). Built ${esc(M.built_utc)} UTC by <code>python -m cfb.lab.player_maps</code>. Nothing here feeds the prediction model.</p>
   <h3>Directions</h3><p>Left, middle and right are the offense's. A defender making plays on the offense's left lines up on the defense's right. The text has no hash marks or formation strength, so field and boundary sides cannot be told apart, and players who flip sides with the formation show up as "sideline to sideline". About ${pct(dm.left_share)} of located plays go to the offense's left, so a side lean is measured against that, not 50%.</p>
-  <h3>Defense</h3><p>Each credited tackle is placed where the ball carrier went down: the run's direction and gain, or the catch's direction and total gain. Breakups and interceptions are placed at the throw (direction and air yards; interceptions have no direction). Sacks and hurries count as backfield plays without a side. This is where a defender finishes plays: close to where linemen and linebackers line up, and shallower than where safeties line up, since they come downhill to tackle. The role model (softmax regression on ${dm.features.length} profile features: run-tackle depth, share of tackles for loss, share of catch tackles, pass-rush and coverage rates, middle share, side lean, shared tackles and more) turns the profile into a likely role, and the alignment line is that role plus any clear side lean. Listed roles come from CFBD rosters and, where those only say DL, DB or LB, Sportradar's position.</p>
+  <h3>Defense</h3><p>Each credited tackle is placed where the ball carrier went down: the run's direction and gain, or the catch's direction and total gain. Breakups and interceptions are placed at the throw (direction and air yards; interceptions have no direction). Sacks and hurries count as backfield plays without a side. This is where a defender finishes plays: close to where linemen and linebackers line up, and shallower than where safeties line up, since they come downhill to tackle. The role model (softmax regression on ${dm.features.length} profile features: run-tackle depth, share of tackles for loss, share of catch tackles, pass-rush and coverage rates, middle share, side lean, shared tackles and more) turns the profile into a likely role, and the alignment line is that role plus any clear side lean. Role labels come from the teams' own depth charts (cfb.depth_charts, one download on ${esc(M.chart_asof || "?")}, P4 and Notre Dame): DT, NT and 3-4 ends are interior, 4-3 ends and stand-up rushers (JACK, OLB, BUCK, ...) are edges, NB, STAR and similar are nickels. Each player takes his highest listing. The chart is a current snapshot, so a 2025 profile is not labeled with it. Teams without a chart fall back to CFBD rosters and, where those only say DL, DB or LB, Sportradar's position.</p>
   <h3>Offense</h3><p>Targets are placed by direction and air yards (behind the line counts as a screen or swing pass), runs by direction and gain. Play-type mix and situations (formation, down, red zone, no huddle) are shares of each player's own touches and targets.</p>
   <h3>Running backs</h3><p>Expected success for a split = the FBS average for RBs in that direction (and formation), adjusted for each opponent's success allowed in that direction, shrunk toward the FBS rate with ${DATA.rb.k_def} carries. By game, the back's own direction baseline (shrunk with ${DATA.rb.k_rb} carries) replaces the FBS average.</p>
   <h3>Drops and the QB</h3><p>Hurried throws are left out: stat crews credit a hurry almost only when the pass falls incomplete, so those misses belong to the pass rush (${rm.hurried_rows_left_out.toLocaleString()} rows). On the ${rm.rows.toLocaleString()} unhurried targets, ${pct(rm.clean_inc_rate)} were clean incompletions (behind the line ${pct(rm.by_depth["Behind LOS"])}, short ${pct(rm.by_depth["Short 1-9"])}, intermediate ${pct(rm.by_depth["Inter 10-19"])}, deep ${pct(rm.by_depth["Deep 20+"])}). The model's throw cells are air yards by direction plus a 3rd/4th-down term; passer, receiver and defense effects are shrunk (logit SD ${rm.tau.qb}, ${rm.tau.rec}, ${rm.tau.def}). A clean incompletion can be a drop, an off-target throw or a missed read; the model can only say whether the excess follows the QB across his receivers or follows one receiver across throws. When one QB throws nearly every pass, the split leans on the receivers' targets from other QBs (backups, 2025 games, transfers) and is less certain.</p>

@@ -105,6 +105,43 @@ incompletions on 235 unhurried targets vs 19.1% for an average QB with the same 
 throws, z 2.13). No receiver is flagged overall. Mississippi State has two play-type spots (Zion
 Ragins short left, Sam West short middle). The other 14 teams show no clear issue.
 
+## Depth chart labels (2026-11-19)
+
+With the team depth charts imported (`cfb.depth_charts`, PR #32: all P4 teams and Notre Dame,
+downloaded 2026-11-19), the lab takes each charted player's highest listing as his label:
+
+- Defense roles: DT, NT and the ends of a three-man front (the chart also lists a stand-up edge
+  such as JACK, BUCK or OLB) are interior; four-man-front ends and stand-up rushers are edges;
+  NB, STAR, SPUR, MONEY and similar are a sixth role, nickel; LCB/RCB/FCB/BCB are corners; SS, FS
+  and other DBs safeties; other LB labels off-ball linebackers. L and R on the label are kept as
+  the chart side.
+- Offense alignment: WR-X, WR-Z, slot (WR-SL, WR-H, WR-F, WR-A, WR-Y), TE, RB, QB. The playbooks
+  lab (`cfb.lab.playbooks`) uses X, Z and Slot in place of WR for charted receivers.
+
+The chart is one snapshot, so it labels 2026 profiles only; 2025 profiles and uncharted (Group of
+Five) teams keep the CFBD / Sportradar labels.
+
+Role model with chart labels, trained on 800 charted non-SEC defenders, tested on 257 charted
+SEC defenders (`python -m cfb.lab.player_maps`, 2026 through week 11):
+
+| | Result |
+|---|---|
+| 6 roles (adds nickel) | 74.7% correct (most common role 18.7%) |
+| By role | corner 33/39, edge 17/34, interior 56/71, off-ball LB 46/48, nickel 8/23, safety 32/42 |
+| Same players, nickels left out | chart-trained 78.6% vs CFBD-label model 66.7% (n 234) |
+| CFBD position agrees with chart role | 81% of 158 SEC defenders with a specific CFBD position; chart edges listed LB by CFBD 10 of 31, chart nickels listed S 9 of 12 |
+| Chart side in the play text | corners: chart-left players have 44.7% of their lateral plays to the offense's left, chart-right 52.1% (+7.4 pts, z 3.1, n 76/77); edges +7.6 pts (z 1.9, n 41/30); interior +3.1 (z 0.4, n 12/12) |
+
+Chart L and R read as the defense's left and right. The lean is small because corners and ends
+flip with the formation and the text has no hash or strength.
+
+Targets by chart alignment, every charted team, 2026: X receivers 43% left / 38% right of
+the offense, Z 31% / 49% (league 46% of lateral targets to the left); slot aDOT 8.8 with 22%
+behind the line; X and Z aDOT 11.5 and 11.4; TE 55% at 1-9 air yards. Clean incompletions by
+alignment are within 2 points of the model's expectation for every group, with 2 X receivers,
+no Z or slot receiver and 1 RB flagged. SEC team readings are unchanged (Texas A&M is the only
+QB flag).
+
 ## Model features from the same text
 
 Three feature groups, registered so `cfb.features.build` and the weekly run compute them, but in no

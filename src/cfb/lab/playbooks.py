@@ -44,7 +44,11 @@ import pandas as pd
 
 from . import player_maps as pm
 
-POS_GROUP = {"QB": "QB", "RB": "RB", "FB": "RB", "WR": "WR", "TE": "TE"}
+POS_GROUP = {"QB": "QB", "RB": "RB", "FB": "RB", "WR": "WR", "TE": "TE", "X": "X", "Z": "Z", "Slot": "Slot"}
+WR_GROUPS = ("WR", "X", "Z", "Slot")
+# Team depth chart alignment (cfb.depth_charts via player_maps.player_info) replaces the CFBD
+# roster position where the player is charted: receivers become X, Z or Slot.
+CHART_LABEL = {"X": "X", "Z": "Z", "SLOT": "Slot", "TE": "TE", "RB": "RB", "QB": "QB"}
 SITUATIONS = (
     ("1st & 10", lambda p: (p["down"] == 1) & (p["distance"] == 10) & (p["yards_to_goal"] > 10)),
     ("1st, other", lambda p: (p["down"] == 1) & ~((p["distance"] == 10) & (p["yards_to_goal"] > 10))),
@@ -88,7 +92,11 @@ def label_plays(b: dict) -> pd.DataFrame:
     o = o[(o["side"] == "offense") & o["role"].isin(["rusher", "target", "passer"])]
     o = o.drop(columns=["season"], errors="ignore").merge(p[["play_id", "offense_id", "season"]], on="play_id")
     o = o[o["team_id"] == o["offense_id"]]
-    info = b["info"][["season", "athlete_id", "player", "position"]]
+    info = b["info"][["season", "athlete_id", "player", "position"]
+                     + (["chart_align"] if "chart_align" in b["info"] else [])].copy()
+    if "chart_align" in info:
+        info["position"] = info["chart_align"].map(CHART_LABEL).where(info["chart_align"].notna(), info["position"])
+        info = info.drop(columns=["chart_align"])
     o = o.merge(info, on=["season", "athlete_id"], how="left")
     first = lambda role: (o[o["role"] == role].drop_duplicates("play_id")
                           .set_index("play_id")[["athlete_id", "player", "position"]])
@@ -113,7 +121,7 @@ def label_plays(b: dict) -> pd.DataFrame:
     group = np.select(
         [(p["action"] == "sack").to_numpy(bool),
          run & (rpos == "QB").to_numpy(bool),
-         run & rpos.isin(["WR", "TE"]).to_numpy(bool),
+         run & rpos.isin(list(WR_GROUPS) + ["TE"]).to_numpy(bool),
          run,
          is_pass & (depth == "").to_numpy(bool),
          is_pass],
@@ -331,7 +339,7 @@ def _defense(d: pd.DataFrame, fbs: pd.DataFrame, maps: dict | None, team: str) -
     if maps:
         ds = [r for r in maps.get("defense", {}).get("players", []) if r.get("team") == team]
         ds.sort(key=lambda r: -r.get("events", 0))
-        defenders = [{k: r.get(k) for k in ("player", "pos", "events", "pred_role", "pred_p", "location",
+        defenders = [{k: r.get(k) for k in ("player", "pos", "chart_pos", "events", "pred_role", "pred_p", "location",
                                               "alignment", "sacks", "hurries", "pbu", "ints")} for r in ds[:8]]
     return {
         "plays": int(len(d)), "success_allowed": pm._r(d["success"].astype(float).mean()),

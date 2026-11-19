@@ -57,7 +57,19 @@ FINE_POS = {"DT": "IDL", "NT": "IDL", "DE": "EDGE", "EDGE": "EDGE", "LB": "LB", 
             "MLB": "LB", "CB": "CB", "S": "S", "SAF": "S"}
 COARSE_POS = {"DL": "DL", "DT": "DL", "NT": "DL", "DE": "DL", "EDGE": "DL", "LB": "LB",
               "ILB": "LB", "MLB": "LB", "OLB": "LB", "DB": "DB", "CB": "DB", "S": "DB", "SAF": "DB"}
-FINE_TO_COARSE = {"IDL": "DL", "EDGE": "DL", "LB": "LB", "CB": "DB", "S": "DB"}
+FINE_TO_COARSE = {"IDL": "DL", "EDGE": "DL", "LB": "LB", "CB": "DB", "S": "DB", "NB": "DB"}
+ROLE_NAMES["NB"] = "Nickel"
+ALIGN_NAMES = {"X": "WR-X (split end)", "Z": "WR-Z (flanker)", "SLOT": "Slot WR", "TE": "Tight end",
+               "RB": "Running back", "QB": "Quarterback"}
+# Team depth chart labels (cfb.depth_charts) -> roles. DE is an edge in a four-man front and an
+# interior end when the chart also lists a stand-up edge (JACK, OLB, ...), i.e. a three-man front.
+CHART_IDL = {"DT", "NT", "LDT", "RDT", "DL", "NG", "N", "T", "3T", "TECH"}
+CHART_DE = {"DE", "LDE", "RDE", "END", "E"}
+CHART_NB = {"NB", "STAR", "SPUR", "NICKEL", "NICK", "CASH", "MONEY", "NKL", "N/S"}
+CHART_CB = {"LCB", "RCB", "CB", "FCB", "BCB", "BC", "FC", "C"}
+CHART_S = {"SS", "FS", "BS", "S", "FSS", "SAF", "BOS"}
+CHART_ALIGN = {"WR-X": "X", "WR-Z": "Z", "WR-SL": "SLOT", "WR-H": "SLOT", "WR-F": "SLOT", "WR-A": "SLOT",
+               "WR-Y": "SLOT", "TE": "TE", "TE-Y": "TE", "TE-H": "TE", "RB": "RB", "FB": "RB", "QB": "QB"}
 SR_MARKET_FIX = {"Miami (FL)": "Miami", "UMass": "Massachusetts", "San Jose State": "San José State",
                  "Appalachian State": "App State", "Louisiana-Monroe": "UL Monroe"}
 
@@ -114,7 +126,53 @@ def load(data_dir: str | Path = "data", seasons=(2025, 2026)) -> dict[str, pd.Da
     roster = roster.dropna(subset=["athlete_id"])
     sr = _sportradar_positions(data, seasons)
     return {"plays": plays, "players": players, "teams": teams, "games": games, "roster": roster,
-            "sr_pos": sr}
+            "sr_pos": sr, "chart": depth_chart_roles(data)}
+
+
+def chart_role(position: str, pos_group: str, three_man: bool):
+    """Role (IDL, EDGE, LB, NB, CB, S) and side (L, R or None) for a defensive chart label."""
+    pos = str(position).upper()
+    side = pos[0] if len(pos) > 2 and pos[0] in "LR" and pos[1:] in {"DE", "DT", "CB", "OLB", "ILB"} else None
+    if pos in CHART_IDL:
+        return "IDL", side
+    if pos in CHART_DE:
+        return ("IDL" if three_man else "EDGE"), side
+    if pos_group == "EDGE":
+        return "EDGE", side
+    if pos in CHART_NB:
+        return "NB", None
+    if pos in CHART_CB:
+        return "CB", side
+    if pos in CHART_S or pos_group == "DB":
+        return "S", None
+    if pos_group == "LB":
+        return "LB", side
+    if pos_group == "DL":
+        return "IDL", side
+    return None, None
+
+
+def depth_chart_roles(data: Path) -> pd.DataFrame:
+    """One row per charted athlete (latest download): chart label, depth, defensive role and side,
+    offensive alignment (X, Z, SLOT, TE, RB, QB). Empty when the depth_charts table is missing."""
+    files = glob.glob(str(data / "tables" / "depth_charts" / "*.parquet"))
+    cols = ["season", "athlete_id", "chart_team", "chart_pos", "chart_depth", "chart_role", "chart_side",
+            "chart_align", "chart_asof"]
+    if not files:
+        return pd.DataFrame(columns=cols)
+    d = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    d = d[d["unit"].isin(["offense", "defense"]) & d["athlete_id"].notna()]
+    d = d[d["asof_utc"] == d.groupby("team")["asof_utc"].transform("max")]
+    edge_teams = set(d.loc[(d["unit"] == "defense") & (d["pos_group"] == "EDGE") & (d["depth"] == 1), "team"])
+    roles = [chart_role(p, g, t in edge_teams) if u == "defense" else (None, None)
+             for p, g, t, u in zip(d["position"], d["pos_group"], d["team"], d["unit"])]
+    d = d.assign(chart_role=[r for r, _ in roles], chart_side=[sd for _, sd in roles],
+                 chart_align=d["position"].astype(str).str.upper().map(CHART_ALIGN).where(d["unit"] == "offense"))
+    d = d.sort_values(["athlete_id", "depth"], na_position="last").drop_duplicates("athlete_id")
+    d = d.rename(columns={"team": "chart_team", "position": "chart_pos", "depth": "chart_depth",
+                          "asof_utc": "chart_asof"})
+    d["athlete_id"] = d["athlete_id"].astype("int64")
+    return d[cols]
 
 
 def _sportradar_positions(data: Path, seasons) -> pd.DataFrame:
@@ -153,8 +211,15 @@ def player_info(b: dict) -> pd.DataFrame:
     r["role_fine"] = fine
     r["role_coarse"] = r["position"].map(COARSE_POS)
     r.loc[r["role_coarse"].isna(), "role_coarse"] = r["sr_position"].map(COARSE_POS)
-    return r.drop_duplicates(["season", "athlete_id"])[
+    r = r.drop_duplicates(["season", "athlete_id"])[
         ["season", "athlete_id", "player", "position", "sr_position", "role_fine", "role_coarse"]]
+    ch = b.get("chart")
+    if ch is not None and len(ch):
+        r = r.merge(ch.drop(columns=["chart_team", "chart_asof"]), on=["season", "athlete_id"], how="left")
+    else:
+        for c in ("chart_pos", "chart_depth", "chart_role", "chart_side", "chart_align"):
+            r[c] = None
+    return r
 
 
 # ----------------------------------------------------------------------------------------------
@@ -285,7 +350,7 @@ def role_model(prof: pd.DataFrame, label_col: str, train_mask: np.ndarray, test_
 
 
 ALIGNMENT = {"IDL": "Interior line", "EDGE": "Edge (end of the line)", "LB": "Box linebacker depth",
-             "CB": "Outside corner", "S": "Safety"}
+             "CB": "Outside corner", "S": "Safety", "NB": "Slot / nickel"}
 
 
 def side_lean(left: int, right: int, center: float = 0.5, width: float = 0.15, min_n: int = 20,
@@ -338,9 +403,15 @@ def defense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
     prof = prof[prof["n_events"] >= MIN_DEF_EVENTS].reset_index(drop=True)
     in_conf = prof["team_id"].isin(conf_ids).to_numpy()
     disp = in_conf & (prof["season"] == season).to_numpy()
-    fine = role_model(prof, "role_fine", ~in_conf, disp)
+    cfbd = role_model(prof, "role_fine", ~in_conf, disp)
     coarse = role_model(prof, "role_coarse", ~in_conf, disp)
+    has_chart = prof["chart_role"].notna().to_numpy() if "chart_role" in prof else np.zeros(len(prof), bool)
+    use_chart = (has_chart & ~in_conf).sum() >= 100
+    # Chart labels are a 2026-11-19 snapshot of P4 + Notre Dame: train on the other charted teams,
+    # test on the conference. Without charts the CFBD / Sportradar labels are used as before.
+    fine = role_model(prof, "chart_role", ~in_conf & has_chart, disp & has_chart) if use_chart else cfbd
     prof["pred_role"] = fine["pred"]
+    prof["pred_cfbd"] = cfbd["pred"]
     prof["pred_p"] = fine["P"].max(axis=1)
     prof["pred_coarse"] = coarse["pred"]
     for i, c in enumerate(fine["labels"]):
@@ -358,7 +429,11 @@ def defense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
             for lt in DIRS:
                 grid[f"{zd}|{lt}"] = int(((g["zone_depth"] == zd) & (g["lat"] == lt)).sum())
         listed = p["role_fine"] if isinstance(p["role_fine"], str) else p["role_coarse"]
-        if isinstance(p["role_fine"], str):
+        chart = p.get("chart_role")
+        if use_chart:
+            listed = chart if isinstance(chart, str) else None
+            mismatch = isinstance(chart, str) and chart != p["pred_role"]
+        elif isinstance(p["role_fine"], str):
             mismatch = p["role_fine"] != p["pred_role"]
         else:
             mismatch = isinstance(p["role_coarse"], str) and FINE_TO_COARSE[p["pred_role"]] != p["role_coarse"]
@@ -368,6 +443,9 @@ def defense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
             "pos": p["position"] if isinstance(p["position"], str) else None,
             "sr_pos": p["sr_position"] if isinstance(p["sr_position"], str) else None,
             "listed_role": ROLE_NAMES.get(listed) if isinstance(listed, str) else None,
+            "chart_pos": p.get("chart_pos") if isinstance(p.get("chart_pos"), str) else None,
+            "chart_depth": int(p["chart_depth"]) if pd.notna(p.get("chart_depth")) else None,
+            "cfbd_role": ROLE_NAMES.get(p["role_fine"]) if isinstance(p["role_fine"], str) else None,
             "games": int(p["n_games"]), "events": int(p["n_events"]),
             "run_tkl": int(p["n_run_tkl"]), "pass_tkl": int(p["n_pass_tkl"]), "sacks": int(p["n_sack"]),
             "hurries": int(p["n_hurry"]), "pbu": int(p["n_pbu"]), "ints": int(p["n_int"]),
@@ -392,9 +470,46 @@ def defense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
                    "baseline": _r(coarse["baseline"]), "n_train": coarse["n_train"],
                    "n_test": coarse["n_test"]},
         "features": FEATURES, "min_events": MIN_DEF_EVENTS, "mid_avg": _r(mid_avg),
-        "left_share": _r(center),
+        "left_share": _r(center), "labels_from": "depth charts" if use_chart else "CFBD / Sportradar",
+        "cfbd": {"acc": _r(cfbd["acc"]), "baseline": _r(cfbd["baseline"]), "n_test": cfbd["n_test"]},
     }
+    if use_chart:
+        model["chart_check"] = chart_check(prof, disp, has_chart, center)
     return {"players": out, "model": model, "_profiles": prof, "_coef": fine["coef"]}
+
+
+def chart_check(prof: pd.DataFrame, test: np.ndarray, has_chart: np.ndarray, center: float) -> dict:
+    """How the chart labels compare with the CFBD labels and the CFBD-label model on the test
+    players, and whether chart sides (L/R) show in where plays are charted."""
+    t = prof[test & has_chart]
+    known = t["role_fine"].notna()
+    agree = float((t.loc[known, "role_fine"] == t.loc[known, "chart_role"]).mean()) if known.any() else None
+    non_nb = t["chart_role"] != "NB"
+    pairs = pd.crosstab(t.loc[known, "chart_role"], t.loc[known, "role_fine"])
+    s = prof[has_chart & prof["chart_side"].isin(["L", "R"]).to_numpy()].copy()
+    s = s[(s["left"] + s["right"]) >= 8]     # linemen have few tackles with a direction
+    s["left_share"] = s["left"] / (s["left"] + s["right"])
+    side = {}
+    for role, g in s.groupby("chart_role"):
+        by = g.groupby("chart_side")["left_share"]
+        n, m, v = by.size(), by.mean(), by.var()
+        d = {k: {"n": int(n.get(k, 0)), "offense_left_share": _r(m.get(k))} for k in ("L", "R")}
+        if n.get("L", 0) >= 5 and n.get("R", 0) >= 5:
+            se = float(np.sqrt(v["L"] / n["L"] + v["R"] / n["R"]))
+            d["r_minus_l"] = _r(m["R"] - m["L"])
+            d["z"] = _r((m["R"] - m["L"]) / se, 2) if se > 0 else None
+        side[ROLE_NAMES.get(role, role)] = d
+    return {
+        "n": int(len(t)), "cfbd_label_known": int(known.sum()), "cfbd_label_agree": _r(agree),
+        "cfbd_vs_chart": {ROLE_NAMES.get(i, i): {ROLE_NAMES.get(j, j): int(pairs.loc[i, j]) for j in pairs.columns}
+                          for i in pairs.index},
+        "cfbd_model_acc_on_chart": _r(float((t.loc[non_nb, "pred_cfbd"] == t.loc[non_nb, "chart_role"]).mean())
+                                      if non_nb.any() else None),
+        "chart_model_acc_same_players": _r(float((t.loc[non_nb, "pred_role"] == t.loc[non_nb, "chart_role"]).mean())
+                                           if non_nb.any() else None),
+        "n_non_nickel": int(non_nb.sum()),
+        "side": side, "side_n": int(len(s)),
+    }
 
 
 # ----------------------------------------------------------------------------------------------
@@ -467,7 +582,9 @@ def offense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
     center = float((tl["pass_dir"] == "left").sum() / tl["pass_dir"].isin(["left", "right"]).sum())
     mid_avg = float((tl["pass_dir"] == "middle").mean())
     t = t[(t["season"] == season) & t["team_id"].isin(conf_ids)]
-    t = t.merge(info[["season", "athlete_id", "player", "position"]], on=["season", "athlete_id"], how="left")
+    ic = ["season", "athlete_id", "player", "position", "chart_pos", "chart_depth", "chart_align"]
+    by_align = align_summary(tl.merge(info[ic], on=["season", "athlete_id"], how="left"), center)
+    t = t.merge(info[ic], on=["season", "athlete_id"], how="left")
     team_tgt = t[t["role"] == "target"].groupby("team_id").size()
     team_rush = t[t["role"] == "rusher"].groupby("team_id").size()
     out = []
@@ -480,6 +597,8 @@ def offense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
         rec = {"team": team_name.get(int(tid)), "athlete_id": int(aid),
                "player": g["player"].iloc[0] if isinstance(g["player"].iloc[0], str) else str(aid),
                "pos": g["position"].iloc[0] if isinstance(g["position"].iloc[0], str) else None,
+               "chart_pos": g["chart_pos"].iloc[0] if isinstance(g["chart_pos"].iloc[0], str) else None,
+               "chart_depth": int(g["chart_depth"].iloc[0]) if pd.notna(g["chart_depth"].iloc[0]) else None,
                "games": int(g["game_id"].nunique()), "targets": int(len(tg)), "rushes": int(len(ru)),
                "attempts": int(len(pa)),
                "tgt_share": _r(len(tg) / team_tgt.get(tid, np.nan), 3),
@@ -536,7 +655,28 @@ def offense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
         else:
             rec["style"] = _style_receiver(g, center, mid_avg)
         out.append(rec)
-    return {"players": out, "left_share": _r(center), "mid_share": _r(mid_avg)}
+    return {"players": out, "left_share": _r(center), "mid_share": _r(mid_avg), "by_align": by_align}
+
+
+def align_summary(tl: pd.DataFrame, center: float) -> list[dict]:
+    """Targets of every charted team (P4 + Notre Dame) by the receiver's chart alignment:
+    depth mix, direction mix, aDOT and the share of the team's targets."""
+    tl = tl[tl["chart_align"].notna()]
+    out = []
+    for a in ("X", "Z", "SLOT", "TE", "RB"):
+        g = tl[tl["chart_align"] == a]
+        if g.empty:
+            continue
+        lr = g["pass_dir"].isin(["left", "right"]).sum()
+        depth = pd.to_numeric(g["air_yards"], errors="coerce")
+        out.append({
+            "align": ALIGN_NAMES[a], "targets": int(len(g)), "players": int(g["athlete_id"].nunique()),
+            "share": _r(len(g) / len(tl)), "adot": _r(depth.mean(), 1),
+            "depth": {name: _r(float(((depth >= lo) & (depth <= hi)).mean())) for name, lo, hi in TGT_DEPTHS},
+            "dir": {d: _r(float((g["pass_dir"] == d).mean())) for d in DIRS},
+            "left_of_lr": _r(float((g["pass_dir"] == "left").sum() / lr)) if lr else None,
+        })
+    return out
 
 
 # ----------------------------------------------------------------------------------------------
@@ -716,6 +856,8 @@ def receiving_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[in
             mates = g[g["rec_id"] != rid]
             recs.append({"athlete_id": int(rid), "player": _name(names, rid),
                          "pos": names.loc[rid, "position"] if rid in names.index else None,
+                         "chart_pos": (names.loc[rid, "chart_pos"] if rid in names.index
+                                       and isinstance(names.loc[rid, "chart_pos"], str) else None),
                          "targets": int(len(gr)), "clean_inc": _r(gr["clean_inc"].mean()),
                          "teammates": _r(mates["clean_inc"].mean()), "expected": _r(gr["p_rec"].mean()),
                          "adot": _r(gr["air"].mean(), 1),
@@ -762,6 +904,18 @@ def receiving_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[in
         "tau": {"qb": 0.4, "rec": 0.4, "def": 0.25}, "effect_z": EFFECT_Z, "cell_p": CELL_P,
         "cell_k": CELL_K,
     }
+    # Clean incompletions by chart alignment, every charted team, current season, with the
+    # model's expectation for an average receiver on the same throws (p_rec).
+    ch = names["chart_align"].dropna() if "chart_align" in names else pd.Series(dtype=object)
+    cur = t[t["season"] == season].assign(align=lambda d: d["rec_id"].map(ch))
+    cur = cur[cur["align"].isin(["X", "Z", "SLOT", "TE", "RB"])]
+    by = []
+    for a, g in cur.groupby("align"):
+        eff = rec_eff.reindex(g["rec_id"].unique())
+        by.append({"align": ALIGN_NAMES[a], "targets": int(len(g)), "clean_inc": _r(g["clean_inc"].mean()),
+                   "expected": _r(g["p_rec"].mean()), "adot": _r(g["air"].mean(), 1),
+                   "flagged": int((eff["z"] >= EFFECT_Z).sum()), "receivers": int(len(eff))})
+    base["by_align"] = sorted(by, key=lambda x: list(ALIGN_NAMES.values()).index(x["align"]))
     return {"teams": sorted(teams_out, key=lambda x: x["team"]), "model": base}
 
 
@@ -799,6 +953,9 @@ def build(data_dir="data", season: int = 2026, conference: str = "SEC", fit_seas
             "plays_season": int(len(ps)),
             "plays_conf": int((ps["offense_id"].isin(conf_ids) | ps["defense_id"].isin(conf_ids)).sum()),
             "teams": sorted(team_name[i] for i in conf_ids),
+            "chart_asof": (pd.Timestamp(b["chart"]["chart_asof"].max()).strftime("%Y-%m-%d")
+                           if len(b["chart"]) else None),
+            "chart_teams": int(b["chart"]["chart_team"].nunique()) if len(b["chart"]) else 0,
         },
         "defense": {k: v for k, v in defense.items() if not k.startswith("_")},
         "offense": offense_section(b, info, season, conf_ids, team_name),
