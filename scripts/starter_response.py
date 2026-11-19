@@ -5,7 +5,7 @@ injured, how teammates absorbed their share, and how model_v2 did in those games
 
 Usage comes from CFBD /plays/stats (passer, rusher, target rows) and the parsed play text
 (defensive credits: tackles, sacks, hurries, breakups, interceptions), on plays outside garbage
-time. A team's regulars are set from its earlier 2026 games only (at least 2):
+time. A team's regulars are set from its last 4 earlier 2026 games (at least 2):
 
     QB1   most dropbacks; usual share of team dropbacks in games he played >= 70%
     RB1   most carries among RB/FB; usual share of team carries >= 30%
@@ -46,6 +46,7 @@ DEF_ROLES = ("tackler", "sacker", "hurry", "breakup", "interceptor", "forced_fum
 ROLE_RULES = {"QB1": 0.70, "RB1": 0.30, "WR1": 0.15, "WR2": 0.10, "TE1": 0.08}
 DEF_N, DEF_MIN = 5, 0.06
 REDUCED = 0.40
+WINDOW = 4          # regulars come from the team's last 4 earlier games
 HDI_TEAM_FIX = {"Miami (FL)": "Miami", "Southern California": "USC", "Pitt": "Pittsburgh",
                 "NC State": "NC State", "Ole Miss": "Ole Miss"}
 
@@ -107,9 +108,11 @@ ROLE_STAT = {"QB1": ("drop", None), "RB1": ("carry", ("RB", "FB")), "WR1": ("tgt
 def regulars(u: pd.DataFrame, team: int, before) -> list[dict]:
     """Regulars of `team` from its games before `before`."""
     prev = u[(u["team_id"] == team) & (u["start_time_utc"] < before)]
-    ngames = prev["game_id"].nunique()
-    if ngames < 2:
+    if prev["game_id"].nunique() < 2:
         return []
+    # the team's last WINDOW games, so a starter who lost the job stops counting as missing
+    last = prev.drop_duplicates("game_id").nlargest(WINDOW, "start_time_utc")["game_id"]
+    prev = prev[prev["game_id"].isin(last)]
     out = []
     for role, (stat, posset) in ROLE_STAT.items():
         cand = prev if posset is None else prev[prev["pos"].isin(posset)]

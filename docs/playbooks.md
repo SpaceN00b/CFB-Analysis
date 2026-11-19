@@ -113,3 +113,57 @@ points of rush success with kneels removed (12 kneels), Texas A&M +0.001 (1).
 
 Not tested: rebuilding the strength features without kneels and re-scoring model_v2. A consistent
 fix for 2014-2021 needs the heuristic, since the text has no kneels there.
+
+## Kneel-removal test and starter games (2026-11-19)
+
+Josiah's rule: a CFBD `Rush` of -2 to -6 yards with under 1:00 on the game clock (2nd or 4th
+quarter) while the offense leads is a kneel; drop it. Against the text kneels in detailed games
+(895), it is right 91.5% of the time but finds 25% of them: most kneels lose 1 yard (475) or 2
+(287). A widened rule (-1 to -6 yards) is right 91.6% and finds 61%. Both were tested.
+
+`scripts/kneel_experiment.py` builds a separate data folder with those plays dropped before
+`core.pbp` and `team_game` (3,654 plays 2014-2026 for the rule, 6,698 widened), then unit ratings,
+`str_power`, `str_power2` and `str_program` were rebuilt (about 10 minutes each) and model_v2 re-run
+(walk-forward 2026, season-forward 2018-2025). The baseline folder is built the same way with
+nothing dropped.
+
+| games | n | baseline log loss | rule | widened |
+| --- | ---: | ---: | ---: | ---: |
+| 2026 with a starter-affected team | 274 | 0.5911 | 0.5911 (+0.0000, SE 0.0001) | 0.5911 (+0.0000) |
+| 2026 SEC starter-affected | 33 | 0.6464 | 0.6466 (+0.0002, SE 0.0004) | 0.6463 (-0.0001) |
+| 2026 other games | 358 | 0.5100 | 0.5100 | 0.5099 |
+| 2026 all | 632 | 0.5452 | 0.5451 (-0.0000) | 0.5451 (-0.0000) |
+| 2018-2025 season-forward | 6,024 | 0.5255 | +0.00004 (SE 0.00003) | +0.00002 |
+
+Win probabilities move 0.04-0.06 points on average (max 0.4), predicted margins 0.04-0.06 points.
+Kneels only enter the EPA and success unit columns; the points-based power ratings carry the model.
+
+`scripts/starter_response.py` sorts the 2026 games. Regulars come from a team's last 4 earlier games:
+QB1 (70%+ of dropbacks), RB1 (30%+ of carries), WR1/WR2 (15%/10%+ of targets), TE1 (8%+), and five
+defenders (6%+ of defensive credits). In a game a regular is out (no stat line) or reduced (under 40%
+of his usual share, garbage time left out), or listed Out on the conference availability report
+(ACC, Big Ten, Big 12, SEC conference games; 170 listings matched to a regular). A team-game is
+affected when QB1 is out or reduced, 2+ offensive regulars are, or a regular is listed. A TE or
+defender with no stat line may still have played; there are no snap counts.
+
+| affected team-games (2026) | n | margin minus model_v2 | offense EPA/play vs expected | success |
+| --- | ---: | ---: | ---: | ---: |
+| QB1 out or reduced | 155 | -2.48 (SE 1.16) | -0.054 | -1.8 pts |
+| 2+ offensive regulars | 102 | -2.34 (SE 1.58) | -0.049 | -2.1 pts |
+| only listed on the report | 75 | -1.00 (SE 2.05) | -0.016 | 0.0 |
+| not affected | 552 | +1.02 (SE 0.67) | -0.016 | -0.3 pts |
+
+How teammates responded (same-position teammate with the largest share gain):
+
+| regular | n | his usual share | replacement usual -> game share | other teammates' gain | EPA: regular usual / replacement |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| QB1 out | 124 | 91% | 31% -> 96% | +2 pts | 0.106 / 0.071 per dropback |
+| QB1 reduced | 29 | 92% | 23% -> 74% | +3 pts | 0.106 / -0.037 |
+| RB1 out | 68 | 45% | 17% -> 47% | +9 pts | 0.139 / 0.015 per carry |
+| WR1 out | 49 | 27% | 11% -> 29% | +9 pts | 0.537 / 0.349 per target |
+| WR2 out | 86 | 18% | 11% -> 27% | +8 pts | 0.351 / 0.448 per target |
+| TE1 out | 103 | 13% | 5% -> 10% | +1 pt | 0.365 / 0.258 per target |
+
+The backup QB takes nearly all dropbacks; a missing RB1's carries go mostly to one back, with less
+efficiency; a missing WR1's targets spread over the next receiver and others. Rows, SEC examples and
+CSVs: /mnt/project-files/exploration/kneels/.
