@@ -107,6 +107,10 @@ def test_unknown_team_and_columns_fail_loudly(tmp_path, data_dir):
     bad_team = write(tmp_path, "x.csv", CSV.replace("Georgia Bulldogs", "Nowhere Owls"))
     with pytest.raises(ValueError, match="Nowhere Owls"):
         dc.import_files([bad_team], data_dir=data_dir, asof="2026-11-19", log=lambda *_: None)
+    good = write(tmp_path, "Georgia_Bulldogs_depth_chart.csv", CSV)
+    with pytest.raises(ValueError, match="Nowhere Owls"):  # nothing is written when one file fails
+        dc.import_files([good, bad_team], data_dir=data_dir, asof="2026-11-19", log=lambda *_: None)
+    assert not (data_dir / "tables" / "depth_charts").exists()
     bad_cols = write(tmp_path, "y.csv", "Team,Pos,Player\nGeorgia Bulldogs,QB,x\n")
     with pytest.raises(ValueError, match="missing columns"):
         dc.import_files([bad_cols], data_dir=data_dir, asof="2026-11-19", log=lambda *_: None)

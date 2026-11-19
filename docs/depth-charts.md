@@ -49,9 +49,10 @@ A player can appear more than once (a starter who also returns kicks, a two-way 
 ("Mississippi Rebels" -> Ole Miss). An unknown team stops the import.
 
 **Positions.** Labels are team-specific. EDGE is the fourth rusher of a four-man front or a
-3-4 outside backer (JACK, BUCK, LEO, RAZOR, WOLF, RUSH, DOG, BAN, LOLB, ROLB). A label not in
+3-4 outside backer (JACK, BUCK, LEO, RAZOR, WOLF, RUSH, DOG, BAN, LOLB, ROLB, STUD). A label not in
 `POS_GROUPS` is reported and takes its group from the matched player's CFBD roster position.
-Vanderbilt labels its line by quick and strong side (QT QG C SG ST), not left and right.
+Vanderbilt labels its line by quick and strong side (QT QG C SG ST), not left and right;
+Notre Dame its secondary by field and boundary (FCB, BCB, BS).
 
 **Player match** (same team, 2026 CFBD roster): jersey and last name, then full name (first
 and last run together), then a last name unique on the team with the same first initial,
@@ -71,23 +72,34 @@ before the first download and no backtest yet.
 
 ## State (2026-11-19)
 
-| Batch | Downloaded (asof_utc) | Teams | Rows | Roster match |
-| --- | --- | --- | --- | --- |
-| 1 | 2026-11-19T04:01:16Z (upload time) | 15: SEC except Alabama and Arkansas, plus Illinois | 1,339 | 100% |
-| 2 | 2026-11-19T04:06:01Z (latest file time) | 17: Alabama, Arkansas, Big 12 except Arizona | 1,395 | 99.9% |
+67 of the 68 P4 teams plus Notre Dame: every ACC, Big Ten, Big 12 and SEC team except
+Arizona (no file), and Notre Dame. 5,745 rows; 99.9% matched to CFBD roster ids.
 
-Unmatched: West Virginia's NaQuari Rogers (not on the CFBD roster). Utah's Nick Brown (#13,
-defense) has two identical 2026 CFBD roster rows; the override picks 5226164, the one with
-2026 Utah game stats (518520 has none).
+| Batch | Downloaded (asof_utc) | Teams | Rows |
+| --- | --- | --- | --- |
+| 1 | 2026-11-19T04:01:16Z (upload time) | 15: SEC except Alabama and Arkansas, plus Illinois | 1,339 |
+| 2 | 2026-11-19T04:06:01Z (latest file time) | 17: Alabama, Arkansas, Big 12 except Arizona | 1,395 |
+| 3 | 2026-11-19T04:22:18Z (latest file time) | 35: ACC, rest of the Big Ten, Notre Dame | 3,011 |
+
+Batch 3 had per-team files plus two combined files (`ACC_batch4_all_teams.csv`,
+`ACC_Big10_batch_all_teams_1.csv`) with the same rows; Louisville was only in the second.
+
+Unmatched (not on the CFBD roster): West Virginia's NaQuari Rogers (RB/KR, 0 snaps per
+Josiah) and USC's Caleb Moser (LS). Utah's Nick Brown (#13, defense) has two identical 2026
+CFBD roster rows; the override picks 5226164, the one with 2026 Utah game stats (518520 has
+none).
 
 **Compared with the playing-time starters** built from the CFBDepth stat exports
-(`starters.csv`, 87% against the 7 lineup PNGs): they hold 599 of the 710 first-team
-starters on these 32 charts (84%). By group: DB 89%, QB 88% (28 of 32), OL 87%, DL 82%,
-LB 82%, WR 82%, RB 79%, TE 78%, EDGE 77%. The four QB differences: Arizona State (chart
-Jake Fette, usage Cutter Boley), Kansas State (Avery Johnson / Blake Barnett), Mississippi
-State (AJ Swann / Parker Puckett), Texas Tech (Thomas Castellanos / Will Hammond). Names are
-compared by first initial and last name, so spelling differences between the sources count
-as misses. Script: `exploration/depth-charts/compare_starters.py` in project files.
+(`starters.csv`, 87% against the 7 lineup PNGs): they hold 1,247 of the 1,487 first-team
+starters on these 67 charts (84%). By group: OL 87%, QB 87% (58 of 67), DB 86%, LB 83%,
+WR 83%, DL 81%, RB 80%, TE 78%, EDGE 74%. QB1 differs at Arizona State (chart Jake Fette,
+usage Cutter Boley), Clemson (Tait Reynolds / Trent Pearman), Kansas State (Avery Johnson /
+Blake Barnett), Maryland (Cardell Williams / Malik Washington), Michigan State (Alessio
+Milivojevic / Cam Fancher), Michigan (Tommy Carr / Bryce Underwood), Mississippi State (AJ
+Swann / Parker Puckett), Texas Tech (Thomas Castellanos / Will Hammond) and Wisconsin (Ryan
+Hopkins / Colton Joseph). Names are compared by first initial and last name, so spelling
+differences between the sources count as misses. Script:
+`exploration/depth-charts/compare_starters.py` in project files.
 
 ## Snapshot
 

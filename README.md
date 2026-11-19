@@ -16,7 +16,7 @@ spread and total for every game, scored against the closing lines.
 | Win-probability model (`model_v1`) | done | `cfb.model`, `cfb.predict`, [docs/model.md](docs/model.md) |
 | Spread and total (phase 2) | done | `cfb.model.points_config`, `cfb.eval.points`, [docs/points.md](docs/points.md) |
 | Weekly report, dashboard | done | `cfb.report`, `cfb.run_week`, `dashboard/`, [docs/report.md](docs/report.md) |
-| Depth chart import (dated snapshots, 32 P4 teams on 2026-11-19) | done | `cfb.depth_charts`, [docs/depth-charts.md](docs/depth-charts.md) |
+| Depth chart import (dated snapshots, P4 + Notre Dame on 2026-11-19, Arizona missing) | done | `cfb.depth_charts`, [docs/depth-charts.md](docs/depth-charts.md) |
 
 Baselines to beat, season-forward on 2018 to 2025 (6,024 FBS vs FBS games): closing spread
 log loss 0.520, CFBD pregame Elo plus home field 0.549, home team always 0.679.

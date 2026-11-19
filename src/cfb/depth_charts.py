@@ -43,16 +43,17 @@ DEPTHS = {"first team": 1, "second team": 2, "third team": 3, "fourth team": 4, 
 # Position label -> coarse group. Labels are team-specific (JACK, BUCK, LEO, RAZOR are the
 # fourth rusher of a four-man front; LOLB/ROLB the outside backers of a 3-4).
 POS_GROUPS = {
-    "QB": "QB", "RB": "RB", "FB": "RB", "TE": "TE",
+    "QB": "QB", "RB": "RB", "FB": "RB", "TE": "TE", "TE-Y": "TE", "TE-H": "TE",
     **{p: "WR" for p in ("WR-X", "WR-Z", "WR-SL", "WR-H", "WR-F", "WR-Y", "WR-A", "WR")},
     # Vanderbilt labels its line by quick and strong side (QT QG C SG ST).
     **{p: "OL" for p in ("LT", "LG", "C", "RG", "RT", "QT", "QG", "SG", "ST", "OT", "OG")},
     **{p: "DL" for p in ("DE", "LDE", "RDE", "DT", "LDT", "RDT", "NT", "DL")},
     **{p: "EDGE" for p in ("JACK", "BUCK", "LEO", "RAZOR", "LOLB", "ROLB", "OLB", "EDGE", "VYPER", "WOLF",
-                           "RUSH", "DOG", "BAN")},
+                           "RUSH", "DOG", "BAN", "STUD")},
     **{p: "LB" for p in ("MLB", "WLB", "SLB", "ILB", "LB", "MAC", "MACK", "MONEY", "MIKE", "WILL", "SAM",
                          "STING", "ROVER", "CAT")},
-    **{p: "DB" for p in ("LCB", "RCB", "CB", "SS", "FS", "S", "NB", "STAR", "NICKEL", "SPUR", "HUSKY")},
+    **{p: "DB" for p in ("LCB", "RCB", "CB", "SS", "FS", "S", "NB", "STAR", "NICKEL", "SPUR", "HUSKY", "CASH",
+                         "FCB", "BCB", "BS")},  # Notre Dame: field/boundary corner, boundary safety
     **{p: "ST" for p in ("PK", "PT", "KO", "LS", "H", "KR", "PR")},
     "Bench": "BENCH",
 }
@@ -63,7 +64,7 @@ ROSTER_GROUPS = {"QB": "QB", "RB": "RB", "FB": "RB", "WR": "WR", "TE": "TE", "OL
                  "LB": "LB", "CB": "DB", "S": "DB", "DB": "DB", "PK": "ST", "P": "ST", "LS": "ST", "PR": "ST"}
 
 # Source team names that are not CFBD "school mascot" or "alternate name mascot".
-TEAM_OVERRIDES = {"mississippi rebels": "Ole Miss"}
+TEAM_OVERRIDES = {"mississippi rebels": "Ole Miss", "north carolina state wolfpack": "NC State"}
 
 # (CFBD team, jersey, player as given) -> CFBD athlete id, for players the roster cannot
 # settle. Utah's Nick Brown (#13 CB) has two identical 2026 roster rows; 5226164 is the one
@@ -257,7 +258,7 @@ def import_files(paths: list[Path], *, data_dir: Path, asof: str | None = None,
         files += sorted(p.glob("*.csv")) if p.is_dir() else [p]
     if not files:
         raise FileNotFoundError("no CSV files given")
-    out = []
+    parsed = []  # parse and check every file before writing anything
     for path in files:
         ts = parse_asof(asof, path)
         yr = season or (ts.year if ts.month >= 7 else ts.year - 1)
@@ -273,6 +274,9 @@ def import_files(paths: list[Path], *, data_dir: Path, asof: str | None = None,
         frame = match_players(frame, roster)
         other = frame["pos_group"] == "OTHER"
         frame.loc[other, "pos_group"] = frame.loc[other, "roster_position"].map(ROSTER_GROUPS).fillna("OTHER")
+        parsed.append((path, name, ts, frame))
+    out = []
+    for path, name, ts, frame in parsed:
         raw_dir = store.root / "raw" / DATASET / ts.strftime("%Y-%m-%d")
         raw_dir.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, raw_dir / name)
