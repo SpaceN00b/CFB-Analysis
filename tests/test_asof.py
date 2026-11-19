@@ -278,6 +278,10 @@ def test_snapshot_every_table_on_disk_has_a_policy(snapshot):
         policy = POLICIES[name]
         if policy.kind == SEASON_FINAL:
             frame = view.prior_seasons(name)
+        elif name == "depth_charts":  # imported snapshots, visible from their download time
+            from cfb.store import Store
+            last = as_utc(Store(snapshot.root).load(name)["asof_utc"].max())
+            frame = snapshot.view(last).table(name)
         else:
             frame = (today if name.endswith("_asof") else view).table(name)
         assert len(frame), name
