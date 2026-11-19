@@ -224,7 +224,8 @@ def team_costs(u: pd.DataFrame, sched: pd.DataFrame, lab: pd.DataFrame, rost: pd
                p_out: dict | None, realized: bool, seasons, regular: set | None = None,
                season_long: bool = True, record_all: bool = False, starter_by: str = "per_game",
                prev_w: dict | None = None, repl_min_gp: int = 1, groups=GROUPS,
-               chart_ref: dict | None = None, chart_repl: dict | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+               chart_ref: dict | None = None, chart_repl: dict | None = None,
+               prev: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """One row per (season, game_id, team_id) for games with >= 2 earlier team games.
 
     p_out: {(game_id, team_id, athlete_id): probability} from listings (used when realized=False).
@@ -238,9 +239,11 @@ def team_costs(u: pd.DataFrame, sched: pd.DataFrame, lab: pd.DataFrame, rost: pd
     that chart's first team at each slot (the adjusted, full-strength chart) instead of the usage
     rule, and the replacement is the next player at the slot's label on chart_repl (default
     chart_ref) who is not out (P(out) < 0.5) and not a healthy starter elsewhere; his rate is his
-    own if he has played this season, else the league backup rate."""
+    own if he has played this season, else the league backup rate.
+    prev: `prev_season_stats(u, lab)` computed beforehand (the local app's player toggles pass the
+    exported table, since its `u` holds only this season's games of the week's teams)."""
     prev_w = PREV_W if prev_w is None else prev_w
-    prev = prev_season_stats(u, lab)
+    prev = prev_season_stats(u, lab) if prev is None else prev
     prev_by = {s: g for s, g in prev.groupby("season")}
     rows, detail = [], []
     lab_s = {s: g.set_index("athlete_id")["grp"] for s, g in lab.groupby("season")}

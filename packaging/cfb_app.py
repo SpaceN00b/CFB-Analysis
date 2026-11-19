@@ -26,16 +26,48 @@ def selftest() -> int:
         sync_ok = "yes"
     except ImportError as exc:
         sync_ok = f"no ({exc.name})"
+    from cfb.ui import availability, connection  # noqa: F401  (Players page, Cloudflare connection)
+    import cfb.lab.depth_impact  # noqa: F401  (the Players page recompute)
+
     groups = discover_groups()
     cfg = load_config()
     app = launch.app_path()
+    keys = key_store_check()
     print(f"groups={len(groups)} models={sorted(C.MODELS)} primary={cfg.primary} "
-          f"config={settings.config_path()} app={app} build={update.current_build()} sync={sync_ok}")
-    if not app.exists() or not groups:
+          f"config={settings.config_path()} app={app} build={update.current_build()} sync={sync_ok} keys={keys}")
+    if not app.exists() or not groups or (sys.platform == "win32" and "ok" not in keys):
         print("selftest failed", file=sys.stderr)
         return 1
     print("selftest ok")
     return 0
+
+
+def key_store_check() -> str:
+    """Where saved keys can go in this build: a keyring round trip under a throwaway service name,
+    and the DPAPI fallback on Windows. Leaves nothing behind."""
+    from cfb import settings
+
+    out = []
+    backend = settings.keyring_backend()
+    if backend:
+        try:
+            import keyring
+
+            keyring.set_password("cfb-selftest", "probe", "v")
+            ok = keyring.get_password("cfb-selftest", "probe") == "v"
+            keyring.delete_password("cfb-selftest", "probe")
+            out.append(f"keyring:{backend}:{'ok' if ok else 'lost'}")
+        except Exception as exc:  # noqa: BLE001
+            out.append(f"keyring:{backend}:error({type(exc).__name__})")
+    else:
+        out.append("keyring:none")
+    if sys.platform == "win32":
+        try:
+            ok = settings._dpapi(settings._dpapi(b"probe", True), False) == b"probe"
+            out.append(f"dpapi:{'ok' if ok else 'mismatch'}")
+        except Exception as exc:  # noqa: BLE001
+            out.append(f"dpapi:error({type(exc).__name__})")
+    return ",".join(out)
 
 
 def main() -> int:

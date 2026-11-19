@@ -55,10 +55,18 @@ def sidebar_update():
     """A sidebar note when a newer build of the packaged app is on GitHub Releases, or a sync runs."""
     if sync_job.JOB.running:
         st.sidebar.caption("Database sync running… progress is on the Data page.")
+    elif not _connected():
+        st.sidebar.caption("Cloudflare not connected: save the R2 keys once on the Settings page.")
     rel = _update()
     if rel:
         link = rel.get("installer_url") or rel.get("url")
         st.sidebar.info(f"Update available: {rel['tag']}. [Download the installer]({link}), run it, then restart the app.")
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _connected() -> bool:
+    from cfb.ui import connection
+    return connection.status().configured
 
 
 def no_data():
@@ -225,13 +233,7 @@ def _sync_controls(warehouse_sync) -> None:
     if job.running:
         return _sync_progress()
     if st.button("Sync now", type="primary"):
-        base = settings.warehouse_dir()
-
-        def run(log):
-            store = warehouse_sync.open_store(warehouse_sync.r2_settings())
-            return warehouse_sync.sync(base, store, log=log)
-
-        job.start(run)
+        job.start(sync_job.run_sync)
         st.rerun()
     snap = job.snapshot()
     if snap.state == "done":
@@ -246,8 +248,7 @@ def _sync_controls(warehouse_sync) -> None:
         if isinstance(exc, warehouse_sync.WarehouseError):
             st.error(f"Sync failed: {exc}")
         else:
-            st.error(f"Sync failed: {exc}. Check the R2 keys on the Settings page "
-                     "(r2_account_id, r2_access_key_id, r2_secret_access_key).")
+            st.error(f"Sync failed: {exc}. Check the Cloudflare connection on the Settings page.")
     if snap.lines and snap.state != "idle":
         st.code("\n".join(snap.lines[-12:]))
 
@@ -264,22 +265,217 @@ def _sync_progress() -> None:
 
 
 def page_settings():
+    from cfb.ui import connection
+
     st.title("Settings")
+    st.subheader("Cloudflare connection")
+    stat = connection.status()
+    if stat.configured:
+        st.success(f"Connected: the R2 keys are saved in {stat.where()} and load on every launch.")
+    else:
+        st.warning("Not connected. Save the R2 keys once; the app loads them on every launch after that.")
+    st.caption("From the Cloudflare dashboard: R2 > Manage API tokens > the read-only token. Paste its Access Key ID, "
+               "Secret Access Key, and either the account ID or the S3 endpoint shown with it "
+               "(https://<account id>.r2.cloudflarestorage.com). Leave a field blank to keep the saved value. "
+               "Values are never shown.")
+    with st.form("r2_connect", clear_on_submit=True):
+        acc = st.text_input("Account ID or S3 endpoint", placeholder="saved" if stat.sources.get("r2_account_id") else "")
+        kid = st.text_input("Access Key ID", type="password",
+                            placeholder="saved" if stat.sources.get("r2_access_key_id") else "")
+        sec = st.text_input("Secret Access Key", type="password",
+                            placeholder="saved" if stat.sources.get("r2_secret_access_key") else "")
+        bucket = st.text_input("Bucket (optional)", placeholder=settings.secret("r2_bucket") or "cfb-warehouse")
+        submitted = st.form_submit_button("Save and test", type="primary")
+    if submitted:
+        try:
+            saved = connection.save(acc, kid, sec, bucket)
+        except Exception as exc:
+            st.error(str(exc))
+        else:
+            _connected.clear()
+            if saved:
+                where = sorted({"Windows Credential Manager" if v == "keyring" else "the encrypted keys file"
+                                for v in saved.values()})
+                st.info(f"Saved {', '.join(saved)} to {', '.join(where)}.")
+            _check_connection(connection)
+    c1, c2 = st.columns(2)
+    if c1.button("Test connection", disabled=not stat.configured):
+        _check_connection(connection)
+    if c2.button("Forget the R2 keys", disabled=not any(stat.sources.values())):
+        connection.forget()
+        _connected.clear()
+        st.rerun()
+    auto = st.toggle("Sync the database when the app starts", value=bool(connection.prefs().get("auto_sync", True)),
+                     help="Downloads only the files that changed. Needs the connection above.")
+    if auto != bool(connection.prefs().get("auto_sync", True)):
+        connection.set_pref("auto_sync", auto)
+
+    st.subheader("Files")
     st.write(f"Config file: `{settings.config_path()}`")
     st.write(f"Warehouse folder: `{settings.warehouse_dir()}`")
-    st.subheader("Keys")
-    st.caption("Stored in Windows Credential Manager. Values are never shown. To sync the database the PC "
-               "needs r2_account_id, r2_access_key_id and r2_secret_access_key (the read-only R2 token); "
-               "r2_bucket defaults to cfb-warehouse. The CFBD key is not needed on the PC.")
-    rows = [{"key": n, "set": settings.secret(n) is not None} for n in settings.SECRET_ENV]
-    st.dataframe(pd.DataFrame(rows), hide_index=True)
+    backend = settings.keyring_backend()
+    st.caption(f"Key store: {('Windows Credential Manager (' + backend + ')') if backend else 'no OS keyring'}; "
+               f"fallback file `{settings.secrets_file()}` (encrypted for this Windows user).")
+
+    st.subheader("Other keys")
+    st.caption("The CFBD and Sportradar keys are not needed on the PC.")
     with st.form("set_key", clear_on_submit=True):
         name = st.selectbox("Key", list(settings.SECRET_ENV))
         value = st.text_input("Value", type="password")
         if st.form_submit_button("Save") and value:
             try:
-                settings.set_secret(name, value.strip())
+                where = settings.set_secret(name, value.strip())
             except Exception as exc:
                 st.error(str(exc))
             else:
-                st.success(f"Saved {name}.")
+                _connected.clear()
+                st.success(f"Saved {name} ({'Windows Credential Manager' if where == 'keyring' else 'encrypted keys file'}).")
+    labels = {"keyring": "Credential Manager", "file": "keys file", "environment": "environment"}
+    rows = [{"key": n, "saved in": labels.get(settings.secret_source(n), "")} for n in settings.SECRET_ENV]
+    st.dataframe(pd.DataFrame(rows), hide_index=True)
+
+
+def _check_connection(connection) -> None:
+    with st.spinner("Checking the bucket…"):
+        try:
+            version = connection.check()
+        except Exception as exc:
+            st.error(f"Connection failed: {exc}")
+        else:
+            st.success(f"Connection works. Cloud database version: {version}.")
+
+
+# ---- players and injuries (test model) ---------------------------------------------------------
+
+@st.cache_resource(show_spinner="Loading player availability…", max_entries=2)
+def _week_model(path: str, mtime: float):
+    from cfb.ui.availability import load_model
+    return load_model(Path(path))
+
+
+SETTING_TO_STATE = {"Listing": "listing", "Available": "available", "Out": "out"}
+
+
+def page_players():
+    from cfb.ui import availability as AV
+    from cfb.ui import connection
+
+    st.title("Players and injuries")
+    pkgs = AV.local_packages()
+    if not pkgs:
+        st.info("No player-availability data on this PC yet. It downloads with the database sync.")
+        if connection.status().configured and not sync_job.JOB.running:
+            if st.button("Sync now", type="primary"):
+                sync_job.JOB.start(sync_job.run_sync)
+                st.rerun()
+        elif sync_job.JOB.running:
+            st.caption("A sync is running; open this page again when it finishes.")
+        else:
+            st.caption("Connect Cloudflare on the Settings page first.")
+        return
+    keys = [p.stem for p in pkgs]
+    key = st.sidebar.selectbox("Injury week", keys, index=0,
+                               format_func=lambda k: k.replace("_regular_", " week ").replace("_", " ")) \
+        if len(keys) > 1 else keys[0]
+    path = dict(zip(keys, pkgs))[key]
+    try:
+        m = _week_model(str(path), path.stat().st_mtime)
+    except Exception as exc:
+        return st.error(f"Could not read {path.name}: {exc}")
+    meta = m.meta
+    src = meta.get("sources") or {}
+    st.caption(f"{meta.get('label', key)} · injury list {src.get('listings', '?')} · depth charts "
+               f"{src.get('charts', '?')} · built {str(meta.get('created_utc', '?'))[:16].replace('T', ' ')} UTC")
+    store = AV.Overrides()
+    ov = store.week(key)
+    tab_picks, tab_mark = st.tabs(["Picks", "Mark players"])
+    with tab_mark:
+        _mark_players(m, store, key, ov)
+    ov = store.week(key)
+    with tab_picks:
+        _availability_picks(m, ov)
+    n = sum(len(v) for v in ov.values())
+    if n:
+        st.subheader(f"Your changes this week ({n})")
+        names = dict(m.week_teams())
+        rows = [{"team": names.get(t, t), "player": m.names.get(a, a), "setting": s.title()}
+                for t, d in ov.items() for a, s in d.items()]
+        st.dataframe(pd.DataFrame(rows), hide_index=True)
+        if st.button("Clear all my changes for this week"):
+            store.clear(key)
+            st.rerun()
+
+
+def _availability_picks(m, ov) -> None:
+    g = m.picks(ov)
+    st.caption("Test model: model_v2 plus the depth-chart injury term. A starter who is out costs his value over the "
+               "next man up on this week's chart, times P(out). \"Listed\" uses the injury list as is; "
+               "\"Yours\" applies your settings from Mark players.")
+    c1, c2 = st.columns(2)
+    p4 = c1.toggle("P4 + Notre Dame games only", value=True)
+    mine = c2.toggle("Only games with your changes", value=False)
+    view = g
+    if p4 and "p4" in view:
+        view = view[view["p4"].astype(bool)]
+    if mine:
+        view = view[view["changed"]]
+    view = view.sort_values("start_time_utc")
+    view = view.assign(kickoff=pd.to_datetime(view["start_time_utc"], utc=True).dt.tz_convert("America/New_York")
+                       .dt.strftime("%a %m-%d %I:%M %p"),
+                       game=view["away_team"] + " @ " + view["home_team"] + view["neutral"].map({True: " (N)", False: ""}))
+    num = st.column_config.NumberColumn
+    st.dataframe(view[["kickoff", "game", "p_v2", "p_dc", "p_mine", "pick", "p_pick", "adj_mine", "flip_vs_listed",
+                       "home_out", "away_out"]], hide_index=True, width="stretch", column_config={
+        "kickoff": "Kickoff (ET)", "game": "Game",
+        "p_v2": num("model_v2 P(home)", format="percent"),
+        "p_dc": num("Listed P(home)", format="percent"),
+        "p_mine": num("Yours P(home)", format="percent"),
+        "pick": "Your pick", "p_pick": num("Win prob", format="percent"),
+        "adj_mine": num("Injury adj (pts)", format="%+.1f", help="Away cost minus home cost; negative favours the away team"),
+        "flip_vs_listed": "Pick changed", "home_out": "Home out (listed)", "away_out": "Away out (listed)"})
+
+
+def _mark_players(m, store, key: str, ov: dict) -> None:
+    teams = m.week_teams()
+    if not teams:
+        return st.info("No games in this package.")
+    tid = st.selectbox("Team", [t for t, _ in teams], format_func=dict(teams).get, key="av_team")
+    mine = ov.get(tid, {})
+    df = m.players(tid, mine)
+    if df.empty:
+        return st.info("No QB, RB, WR or TE data for this team.")
+    st.caption("Set a player to Available or Out to override the injury list; Listing follows the list. Only QB, RB, "
+               "WR and TE starters change the pick (the model found no measurable effect for OL or defense).")
+    ed_key = f"av_ed_{key}_{tid}"
+    num = st.column_config.NumberColumn
+    cols = ["athlete_id", "player", "grp", "setting", "listing", "p_listed", "starter", "cost_now", "value_pts",
+            "next_up", "p_out_now", "chart", "games", "touches"]
+    edited = st.data_editor(df[cols], hide_index=True, width="stretch", key=ed_key,
+                            disabled=[c for c in cols if c != "setting"], column_config={
+        "athlete_id": None, "player": "Player", "grp": "Pos", "chart": "Chart spot", "games": "Games",
+        "touches": st.column_config.NumberColumn("Touches", help="Dropbacks (QB), carries (RB), targets (WR/TE)"),
+        "listing": "Injury list", "p_listed": num("P(out) listed", format="%.2f"),
+        "setting": st.column_config.SelectboxColumn("Your setting", options=list(SETTING_TO_STATE), required=True),
+        "starter": "Starter", "value_pts": num("Value over next (pts)", format="%.1f"),
+        "p_out_now": num("P(out) used", format="%.2f"), "cost_now": num("Cost (pts)", format="%.1f"),
+        "next_up": "Next man up"})
+    new = dict(zip(edited["athlete_id"].astype(int), edited["setting"]))
+    old = dict(zip(df["athlete_id"].astype(int), df["setting"]))
+    if new != old:
+        states = {a: SETTING_TO_STATE[s] for a, s in new.items()}
+        store.set_team(key, tid, states, {a: m.names.get(a) for a in states})
+        st.session_state.pop(ed_key, None)
+        st.rerun()
+    res, base = m.team(tid, mine), m.team(tid, {})
+    g = m.picks(ov)  # both teams' settings
+    row = g[(g["home_id"] == tid) | (g["away_id"] == tid)]
+    if len(row):
+        r = row.iloc[0]
+        st.write(f"**{dict(teams).get(tid)}** injury cost this game: **{res.cost:.1f} pts** "
+                 f"(injury list as is: {base.cost:.1f}). Game: {r['away_team']} @ {r['home_team']}. "
+                 f"Your pick **{r['pick']}** {r['p_pick']:.1%}. Chance {r['home_team']} wins: yours {r['p_mine']:.1%}, "
+                 f"injury list as is {r['p_dc']:.1%}, model_v2 without injuries {r['p_v2']:.1%}.")
+    if mine and st.button("Reset this team to the injury list"):
+        store.set_team(key, tid, {})
+        st.session_state.pop(ed_key, None)
+        st.rerun()

@@ -21,6 +21,7 @@ def clean_env(monkeypatch, tmp_path):
     # No real project files mount and no real keyring in these tests.
     monkeypatch.setenv("CFB_PROJECT_FILES", str(tmp_path / "no-mount"))
     monkeypatch.setattr(settings, "_keyring", lambda: None)
+    monkeypatch.setenv("CFB_SECRETS_FILE", str(tmp_path / "secrets.json"))
     monkeypatch.delattr(sys, "frozen", raising=False)
 
 
@@ -132,11 +133,50 @@ def test_secret_survives_broken_keyring(monkeypatch):
     assert settings.secret("r2_bucket") is None
 
 
-def test_set_secret_needs_keyring_and_known_name():
-    with pytest.raises(RuntimeError):
-        settings.set_secret("cfbd_api_key", "x")
+def test_set_secret_without_keyring_uses_the_secrets_file():
+    assert settings.set_secret("r2_access_key_id", "plain-key-value") == "file"
+    assert settings.secret("r2_access_key_id") == "plain-key-value"
+    assert settings.secret_source("r2_access_key_id") == "file"
+    raw = settings.secrets_file().read_text(encoding="utf-8")
+    if sys.platform == "win32":
+        assert "plain-key-value" not in raw  # DPAPI-encrypted for this Windows user
+    settings.delete_secret("r2_access_key_id")
+    assert settings.secret("r2_access_key_id") is None
     with pytest.raises(KeyError):
         settings.set_secret("not_a_secret", "x")
+
+
+class ForgetfulKeyring(FakeKeyring):
+    """Accepts a value but does not keep it (a backend that cannot persist)."""
+
+    def set_password(self, service, name, value):
+        pass
+
+
+def test_set_secret_falls_back_when_keyring_does_not_keep_it(monkeypatch):
+    monkeypatch.setattr(settings, "_keyring", lambda: ForgetfulKeyring())
+    assert settings.set_secret("r2_secret_access_key", "s3cr3t") == "file"
+    assert settings.secret("r2_secret_access_key") == "s3cr3t"
+
+
+def test_set_secret_in_keyring_removes_the_file_copy(monkeypatch):
+    settings.set_secret("r2_bucket", "old")            # no keyring yet: file
+    kr = FakeKeyring()
+    monkeypatch.setattr(settings, "_keyring", lambda: kr)
+    assert settings.set_secret("r2_bucket", "new") == "keyring"
+    assert settings.secret_source("r2_bucket") == "keyring"
+    assert "r2_bucket" not in settings.secrets_file().read_text(encoding="utf-8")
+    assert settings.secret("r2_bucket") == "new"
+
+
+def test_keyring_backend_names(monkeypatch):
+    assert settings.keyring_backend() is None
+    fail = type("Keyring", (), {"__module__": "keyring.backends.fail"})()
+    monkeypatch.setattr(settings, "_keyring", lambda: types.SimpleNamespace(get_keyring=lambda: fail))
+    assert settings.keyring_backend() is None
+    win = type("WinVaultKeyring", (), {"__module__": "keyring.backends.Windows"})()
+    monkeypatch.setattr(settings, "_keyring", lambda: types.SimpleNamespace(get_keyring=lambda: win))
+    assert settings.keyring_backend() == "Windows.WinVaultKeyring"
 
 
 def test_client_key_resolution(monkeypatch):

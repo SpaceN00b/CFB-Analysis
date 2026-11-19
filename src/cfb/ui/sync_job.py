@@ -88,3 +88,36 @@ class SyncJob:
 
 
 JOB = SyncJob()  # one per app process: shared by all pages, reruns and browser tabs
+
+
+def run_sync(log):
+    """The app's sync: the database from R2, then this week's player-availability package
+    (best effort: a failure there does not fail the database sync)."""
+    from cfb import settings, warehouse_sync
+    from cfb.ui import availability
+
+    store = warehouse_sync.open_store(warehouse_sync.r2_settings())
+    result = warehouse_sync.sync(settings.warehouse_dir(), store, log=log)
+    try:
+        availability.fetch_latest(store, log=log)
+    except Exception as exc:  # noqa: BLE001  (reported in the log only)
+        log(f"player availability download failed: {exc}")
+    return result
+
+
+_AUTO = {"done": False}
+_AUTO_MU = threading.Lock()
+
+
+def autostart(start=None) -> bool:
+    """Start one background sync when the app process starts, if the R2 keys are saved and
+    "sync at launch" is on. True when it started one."""
+    with _AUTO_MU:
+        if _AUTO["done"]:
+            return False
+        _AUTO["done"] = True
+    from cfb.ui import connection
+
+    if not connection.prefs().get("auto_sync", True) or not connection.status().configured:
+        return False
+    return (start or JOB.start)(run_sync)

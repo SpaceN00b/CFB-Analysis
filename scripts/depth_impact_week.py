@@ -81,7 +81,8 @@ def main():
     g = g.sort_values(["p4", "start_time_utc"], ascending=[False, True])
     a.out.mkdir(parents=True, exist_ok=True)
     keep = ["game_id", "start_time_utc", "home_team", "away_team", "neutral", "pred", "adj", "p_v2", "p_dc",
-            "adj_pr34", "p_pr34", "home_cost", "away_cost", "home_out", "away_out", "p4"]
+            "adj_pr34", "p_pr34", "home_cost", "away_cost", "home_out", "away_out", "p4",
+            "home_id", "away_id", "lin", "calib_s"]   # last four: inputs of the app's player toggles
     g[keep].to_csv(a.out / f"week{a.week}_{S}.csv", index=False)
     lines = [f"# Week {a.week} {S}: model_v2 with the depth-chart injury term", "",
              "This week's charts = current team charts less every player listed out on the CFBDepth list "
