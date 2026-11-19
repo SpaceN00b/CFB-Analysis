@@ -262,53 +262,94 @@ def main():
     lf = cfd_f.assign(p=cfd_f["status"].map({k: v[0] for k, v in rate26.items()})).dropna(subset=["p"])
     pf = lf.set_index(["game_id", "team_id", "athlete_id"])["p"]
     pf = pf[~pf.index.duplicated()].to_dict()
-    tff, detf = D.team_costs(u, schedf, lab_c, rost, mu, pf, False, [2026], record_all=True)
-    _, dett = D.team_costs(u, schedf, lab_c, rost, mu, pf, False, [2026], record_all=True, starter_by="total")
     nxt = schedf.merge(gi[["game_id", "week"]].rename(columns={"week": "wk"}), on="game_id")
     nxt = nxt[nxt["wk"] == a.week][["game_id", "team_id"]]
-    sc = detf.merge(nxt, on=["game_id", "team_id"])
-    tt = dett.merge(nxt, on=["game_id", "team_id"])
-    tt = tt.assign(cost_total=tt["vor"] * tt["p_out"])[["game_id", "team_id", "grp", "athlete_id", "cost_total", "repl_id"]]
-    sc = sc.merge(tt.rename(columns={"repl_id": "repl_id_total"}), on=["game_id", "team_id", "grp", "athlete_id"], how="left")
-    sc["starter_total"] = sc["cost_total"].notna()
-    sc["cost_total"] = sc["cost_total"].fillna(0.0)
     ros26 = pd.read_parquet(DATA / "tables" / "roster" / "2026.parquet", columns=["id", "firstName", "lastName"])
     ros26["athlete_id"] = pd.to_numeric(ros26["id"], errors="coerce")
     nm = (ros26["firstName"].fillna("") + " " + ros26["lastName"].fillna("")).str.strip()
     names = dict(zip(ros26["athlete_id"], nm))
     tname = dict(zip(teams.loc[teams["season"] == 2026, "team_id"], teams.loc[teams["season"] == 2026, "team"]))
+    tid26 = {v: k for k, v in tname.items()}
     stat = lf.drop_duplicates(["game_id", "team_id", "athlete_id"]).set_index(["game_id", "team_id", "athlete_id"])["status"]
+    lo = lf.merge(nxt, on=["game_id", "team_id"])
+    lo = lo[lo["p"] >= 0.5].drop_duplicates(["team_id", "athlete_id"])
+    lo = lo.assign(name=lo["athlete_id"].map(names))
+
+    # adjusted (full-strength) chart, for backtesting the season: listed-out players put back in their spot
+    _, detf = D.team_costs(u, schedf, lab_c, rost, mu, pf, False, [2026], record_all=True)
+    st_pg = detf.merge(nxt, on=["game_id", "team_id"])
+    exr = D.export_roles(EXPORTS, DATA, teams)
+    charted = set(chart["team"].map(tid26))
+    offs = st_pg[st_pg["team_id"].isin(charted)][["team_id", "athlete_id", "grp", "align"]]
+    adj = D.adjusted_chart(chart, lo[["team_id", "athlete_id", "status", "name"]], exr, offs, teams)
+    cols = ["team", "unit", "position", "depth", "player", "athlete_id", "role", "status", "inserted", "note", "starter_share"]
+    adj[cols].to_csv(a.out / "adjusted_depth_charts_backtest_2026.csv", index=False)
+    ins = adj[adj["inserted"]]
+    print(f"\nadjusted (backtest) charts: {len(ins)} listed-out players moved back up to their natural spot "
+          f"({ins['unit'].value_counts().to_dict()}; at first team {int((ins['depth'] == 1).sum())})")
+
+    # this week's chart (Josiah 2026-11-19): the current charts less every player listed out
+    wkc = D.week_chart(chart, lo[["team_id", "athlete_id", "status"]], teams)
+    wkc[["team", "unit", "position", "depth", "player", "athlete_id", "role", "removed_status"]].to_csv(
+        a.out / f"depth_charts_week{a.week}_2026.csv", index=False)
+    print(f"week {a.week} charts: {int(wkc['removed_status'].notna().sum())} listed rows removed "
+          f"({wkc.loc[wkc['removed_status'].notna(), 'removed_status'].value_counts().to_dict()})")
+
+    # ---- backtest 2026 with charts: starters from the adjusted chart, next man up on it per game
+    ref_adj, repl_adj = D.chart_slots(adj, teams)
+    bt = {}
+    for mode in ("list", "real"):
+        kw = dict(chart_ref=ref_adj, chart_repl=repl_adj, starter_by="total")
+        if mode == "list":
+            tc, _ = D.team_costs(u, sched, lab_c, rost, mu, p26d, False, s26, **kw)
+            tu, _ = D.team_costs(u, sched, lab_c, rost, mu, p26d, False, s26, chart_repl=repl_adj, starter_by="total")
+        else:
+            tc, _ = D.team_costs(u, sched, lab_c, rost, mu, None, True, s26, regular, **kw)
+            tu, _ = D.team_costs(u, sched, lab_c, rost, mu, None, True, s26, regular, chart_repl=repl_adj, starter_by="total")
+        bt[mode] = {"chart_adj": tot(tc, ALLC), "chart_adj_disc": tot(tc, ALLD), "dc_total+chart_next": tot(tu, ALLC)}
+    brow = []
+    for lab_t in [t for t in tests if t.startswith("2026")]:
+        mode, msk = tests[lab_t]
+        d = g[msk.to_numpy()].copy()
+        ref = {v: sigmoid(d["lin"] + d["calib_s"] * game_adj(d, costs[mode][v], "cost")) for v in ("pr34", "dc_total")}
+        for v, c in bt[mode].items():
+            adj_v = game_adj(d, c, "cost")
+            pv = sigmoid(d["lin"] + d["calib_s"] * adj_v)
+            diff, se = boot(d, pv, d["p0"])
+            d1, s1 = boot(d, pv, ref["pr34"])
+            d2, s2 = boot(d, pv, ref["dc_total"])
+            brow.append({"test": lab_t, "version": v, "n": len(d), "n_adjusted": int((adj_v.abs() > 1e-9).sum()),
+                         "ll_v2": round(log_loss(d["y"], d["p0"]), 4), "ll": round(log_loss(d["y"], pv), 4),
+                         "vs_v2": round(diff, 4), "se": round(se, 4), "vs_pr34": round(d1, 4), "se_vs_pr34": round(s1, 4),
+                         "vs_dc_total": round(d2, 4), "se_vs_dc_total": round(s2, 4),
+                         "acc_v2": round(((d["p0"] >= 0.5) == (d["y"] == 1)).mean(), 4),
+                         "acc": round(((pv >= 0.5) == (d["y"] == 1)).mean(), 4), "mean_abs_adj": round(adj_v.abs().mean(), 3)})
+    brow = pd.DataFrame(brow)
+    brow.to_csv(a.out / "results_chart_backtest.csv", index=False)
+    print("\nchart backtest 2026 (adjusted chart, players listed for each game removed):")
+    print(brow.to_string(index=False))
+
+    # ---- this week's impact scores: full-strength starter vs the next man up on this week's chart
+    _, repl_wk = D.chart_slots(wkc[wkc["depth"].notna()], teams)
+    _, dett = D.team_costs(u, schedf, lab_c, rost, mu, pf, False, [2026], record_all=True, starter_by="total",
+                           chart_repl=repl_wk)
+    sc = dett.merge(nxt, on=["game_id", "team_id"])
     sc["team"] = sc["team_id"].map(tname)
     sc["player"] = sc["athlete_id"].map(names)
     sc["replacement"] = sc["repl_id"].map(names)
     sc["status"] = [stat.get((gg, t, at)) for gg, t, at in zip(sc["game_id"], sc["team_id"], sc["athlete_id"])]
-    sc["cost_dc"] = sc["vor"] * sc["p_out"] * sc["disc"]
-    sc["charted_team"] = sc["team_id"].isin(set(chart["team"].map({v: k for k, v in tname.items()})))
+    sc["cost"] = sc["vor"] * sc["p_out"]
+    sc["charted_team"] = sc["team_id"].isin(charted)
     keep = ["team", "grp", "align", "player", "athlete_id", "status", "p_out", "touches_pg", "rate", "replacement",
-            "repl_rate", "vor", "disc", "cost_dc", "starter_total", "cost_total", "season_long", "charted_team", "game_id"]
+            "repl_rate", "vor", "cost", "season_long", "charted_team", "game_id"]
     sc = sc[keep].sort_values(["team", "grp", "touches_pg"], ascending=[True, True, False])
     sc.to_csv(a.out / f"impact_scores_week{a.week}_2026.csv", index=False)
-    print(f"\nimpact scores week {a.week}: {len(sc)} starters, {int((sc['p_out'] >= 0.5).sum())} listed out; "
-          f"cost >= 1 pt: dc {int((sc['cost_dc'] >= 1).sum())}, dc_total {int((sc['cost_total'] >= 1).sum())}")
-    show = ["team", "grp", "player", "status", "touches_pg", "rate", "replacement", "repl_rate", "vor", "disc", "cost_dc",
-            "starter_total", "cost_total"]
-    print(sc[(sc["cost_dc"] >= 1) | (sc["cost_total"] >= 1)].sort_values("cost_total", ascending=False)[show]
-          .head(30).to_string(index=False))
-
-    # adjusted chart: listed out (p >= 0.5) for the coming game, all units
-    exr = D.export_roles(EXPORTS, DATA, teams)
-    lo = lf.merge(nxt, on=["game_id", "team_id"])
-    lo = lo[lo["p"] >= 0.5].drop_duplicates(["team_id", "athlete_id"])
-    lo = lo.assign(name=lo["athlete_id"].map(names))
-    offs = sc[sc["charted_team"]][["athlete_id", "grp", "align"]].assign(
-        team_id=sc.loc[sc["charted_team"], "team"].map({v: k for k, v in tname.items()}))
-    adj = D.adjusted_chart(chart, lo[["team_id", "athlete_id", "status", "name"]], exr, offs, teams)
-    cols = ["team", "unit", "position", "depth", "player", "athlete_id", "role", "status", "inserted", "note", "starter_share"]
-    adj[cols].to_csv(a.out / f"adjusted_depth_charts_week{a.week}_2026.csv", index=False)
-    ins = adj[adj["inserted"]]
-    print(f"adjusted charts: {len(ins)} listed-out players moved back up to their natural spot "
-          f"({ins['unit'].value_counts().to_dict()}; at first team {int((ins['depth'] == 1).sum())})")
-    print(ins[["team", "unit", "position", "player", "status", "note", "starter_share"]].head(40).to_string(index=False))
+    print(f"\nimpact scores week {a.week} (starter by season touches, replacement = next man up on this week's chart): "
+          f"{len(sc)} starters, {int((sc['p_out'] >= 0.5).sum())} listed out; cost >= 1 pt {int((sc['cost'] >= 1).sum())}")
+    show = ["team", "grp", "player", "status", "touches_pg", "rate", "replacement", "repl_rate", "vor", "cost"]
+    print(sc[sc["cost"] >= 1].sort_values("cost", ascending=False)[show].head(30).to_string(index=False))
+    tcost = sc.assign(team_id=sc["team"].map(tid26)).groupby(["game_id", "team_id"], as_index=False)["cost"].sum()
+    tcost.to_csv(a.out / f"team_costs_week{a.week}_2026.csv", index=False)
 
 
 if __name__ == "__main__":

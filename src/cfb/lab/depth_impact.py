@@ -201,10 +201,30 @@ def prev_season_stats(u: pd.DataFrame, lab: pd.DataFrame) -> pd.DataFrame:
     return s.merge(lab, on=["season", "athlete_id"], how="inner")
 
 
+def _chart_label(crep: dict, athlete: int, align: str, grp: str):
+    """The chart label for a starter: where the chart lists him (best depth), else the team's first
+    label for his spot (X, Z, SLOT; WIDE / WR -> X then Z; QB, RB, TE)."""
+    best = None
+    for lab, x in crep.items():
+        if athlete in x["ids"]:
+            d = x["ids"].index(athlete)
+            if best is None or d < best[0]:
+                best = (d, lab)
+    if best is not None and ALIGN_GRP.get(crep[best[1]]["role"], crep[best[1]]["role"]) == grp:
+        return best[1]
+    want = {"WIDE": ["X", "Z"], "WR": ["X", "Z", "SLOT"]}.get(align, [align])
+    for w in want + [grp]:
+        for lab, x in crep.items():
+            if x["role"] == w or (w == grp and ALIGN_GRP.get(x["role"]) == grp):
+                return lab
+    return None
+
+
 def team_costs(u: pd.DataFrame, sched: pd.DataFrame, lab: pd.DataFrame, rost: pd.DataFrame, mu: dict,
                p_out: dict | None, realized: bool, seasons, regular: set | None = None,
                season_long: bool = True, record_all: bool = False, starter_by: str = "per_game",
-               prev_w: dict | None = None, repl_min_gp: int = 1, groups=GROUPS) -> tuple[pd.DataFrame, pd.DataFrame]:
+               prev_w: dict | None = None, repl_min_gp: int = 1, groups=GROUPS,
+               chart_ref: dict | None = None, chart_repl: dict | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """One row per (season, game_id, team_id) for games with >= 2 earlier team games.
 
     p_out: {(game_id, team_id, athlete_id): probability} from listings (used when realized=False).
@@ -213,7 +233,12 @@ def team_costs(u: pd.DataFrame, sched: pd.DataFrame, lab: pd.DataFrame, rost: pd
     mu: season -> {group: (starter mean, backup mean)}.
     starter_by: "per_game" (touches per game when present; a starter who missed games keeps his
     slot) or "total" (most touches so far this season, PR 34's QB rule). prev_w: weight of last
-    season's touches in the rates. repl_min_gp: appearances a replacement needs."""
+    season's touches in the rates. repl_min_gp: appearances a replacement needs.
+    chart_ref / chart_repl (from `chart_slots`, charted teams only): with chart_ref the starters are
+    that chart's first team at each slot (the adjusted, full-strength chart) instead of the usage
+    rule, and the replacement is the next player at the slot's label on chart_repl (default
+    chart_ref) who is not out (P(out) < 0.5) and not a healthy starter elsewhere; his rate is his
+    own if he has played this season, else the league backup rate."""
     prev_w = PREV_W if prev_w is None else prev_w
     prev = prev_season_stats(u, lab)
     prev_by = {s: g for s, g in prev.groupby("season")}
@@ -241,7 +266,18 @@ def team_costs(u: pd.DataFrame, sched: pd.DataFrame, lab: pd.DataFrame, rost: pd
                 sh = getattr(x, t) / max(getattr(x, f"team_{t}"), 1)
                 if x.gp >= PREV_MIN_GP and sh >= PREV_SHARE[x.grp]:
                     cand.add(x.athlete_id)
-        ath = np.array(sorted(set(pu["athlete_id"]) | cand))
+        cref = chart_ref.get(team) if chart_ref else None
+        crep = chart_repl.get(team) if chart_repl else None
+        if cref and crep is None:
+            crep = {lab_: {"role": G_, "ids": ids} for G_, slots in cref.items() for lab_, ids in slots}
+        extra = set()
+        for slots in (cref or {}).values():
+            for _lab, ids in slots:
+                extra.update(ids)
+        for x_ in (crep or {}).values():
+            extra.update(x_["ids"])
+        extra = {a for a in extra if a in grp_map.index}
+        ath = np.array(sorted(set(pu["athlete_id"]) | cand | extra))
         ath = ath[[a in grp_map.index for a in ath]]
         if not len(ath):
             continue
@@ -298,6 +334,15 @@ def team_costs(u: pd.DataFrame, sched: pd.DataFrame, lab: pd.DataFrame, rost: pd
                 rank = v if starter_by == "per_game" else np.where(v_cur > 0, cV[t][:, k], v_prev * PREV_MIN_GP)
                 order = pool[np.argsort(-rank[pool], kind="stable")]
                 starters = list(order[:N_START[G]])
+                slot_lab = {}
+                if cref:
+                    # chart mode: first team at each slot label; v from usage (0 if no role yet)
+                    starters = []
+                    for lab_, ids in cref.get(G, []):
+                        if ids and ids[0] in aidx and aidx[ids[0]] not in starters:
+                            starters.append(aidx[ids[0]])
+                            slot_lab[aidx[ids[0]]] = lab_
+                    starters = [si for si in starters if v[si] > 0]
                 n_tch = cV[t][:, k] + prev_w[G] * prev_n
                 e_tch = cV[f"{t}_epa"][:, k] + prev_w[G] * prev_e
                 ms, mb = mu_s[G]
@@ -311,13 +356,24 @@ def team_costs(u: pd.DataFrame, sched: pd.DataFrame, lab: pd.DataFrame, rost: pd
                          and po[i] < 0.5]
                 used = set()
                 cost = cost_d = n_out = vor_sum = 0.0
+                healthy_st = {si for si in starters if po[si] < 0.5}
                 for si in starters:
                     pick = None
-                    if G == "WR":
-                        ok = WR_SPOT.get(str(align[si]), WR_SPOT["WR"])
-                        pick = next((c for c in cands if c not in used and str(align[c]) in ok), None)
-                    if pick is None:
-                        pick = next((c for c in cands if c not in used), None)
+                    if crep:
+                        # next man up on the chart at the starter's label
+                        lab_ = slot_lab.get(si) or _chart_label(crep, int(ath[si]), str(align[si]), G)
+                        for a_ in (crep.get(lab_) or {}).get("ids", []):
+                            ci_ = aidx.get(a_)
+                            if ci_ is None or ci_ == si or ci_ in used or ci_ in healthy_st or po[ci_] >= 0.5:
+                                continue
+                            pick = ci_
+                            break
+                    else:
+                        if G == "WR":
+                            ok = WR_SPOT.get(str(align[si]), WR_SPOT["WR"])
+                            pick = next((c for c in cands if c not in used and str(align[c]) in ok), None)
+                        if pick is None:
+                            pick = next((c for c in cands if c not in used), None)
                     if po[si] >= 0.5 and pick is not None:
                         used.add(pick)
                     rr = rate_b[pick] if pick is not None else mb
@@ -336,6 +392,58 @@ def team_costs(u: pd.DataFrame, sched: pd.DataFrame, lab: pd.DataFrame, rost: pd
     det = pd.DataFrame(detail, columns=["season", "game_id", "team_id", "grp", "athlete_id", "align", "p_out",
                                         "touches_pg", "rate", "repl_id", "repl_rate", "vor", "disc", "season_long"])
     return pd.DataFrame(rows), det
+
+
+def chart_slots(rows: pd.DataFrame, teams: pd.DataFrame) -> tuple[dict, dict]:
+    """Offensive skill slots from chart rows (team, unit, position, depth, athlete_id, role).
+
+    Returns (ref, repl): ref = {team_id: {group: [(label, [athlete ids by depth]), ...]}} with QB 1,
+    RB 1 (RB before FB), WR up to 3 labels and TE 1 label, the order of `N_START`; repl = {team_id:
+    {label: {"role": QB/RB/X/Z/SLOT/TE, "ids": [athlete ids by depth]}}} for every offensive skill label."""
+    tid = dict(zip(teams.loc[teams["season"] == 2026, "team"], teams.loc[teams["season"] == 2026, "team_id"]))
+    r = rows[(rows["unit"] == "offense") & rows["role"].isin(["QB", "RB", "X", "Z", "SLOT", "TE"])].copy()
+    r = r[r["athlete_id"].notna() & r["depth"].notna()]
+    r["athlete_id"] = r["athlete_id"].astype("int64")
+    r["depth"] = r["depth"].astype(float)
+    r["grp"] = r["role"].map(ALIGN_GRP)
+    ref, repl = {}, {}
+    for team, g in r.groupby("team"):
+        t = tid.get(team)
+        if t is None:
+            continue
+        labs, roles = {}, {}
+        for lab, x in g.sort_values("depth").groupby("position", sort=False):
+            labs[lab] = (x["grp"].iloc[0], list(dict.fromkeys(x["athlete_id"])))
+            roles[lab] = x["role"].iloc[0]
+        repl[t] = {lab: {"role": roles[lab], "ids": ids} for lab, (_g, ids) in labs.items()}
+        out = {}
+        for G in GROUPS:
+            cand = [(lab, ids) for lab, (gg, ids) in labs.items() if gg == G]
+            if G == "RB":
+                cand = sorted(cand, key=lambda li: li[0] != "RB")
+            if G == "TE":
+                cand = sorted(cand, key=lambda li: li[0] not in ("TE", "TE-Y"))
+            if G == "WR":
+                order = {"WR-X": 0, "WR-Z": 1, "WR-SL": 2}
+                cand = sorted(cand, key=lambda li: order.get(li[0], 3))
+            out[G] = cand[:N_START[G]]
+        ref[t] = out
+    return ref, repl
+
+
+def week_chart(chart: pd.DataFrame, out_ids: pd.DataFrame, teams: pd.DataFrame) -> pd.DataFrame:
+    """This week's chart: the current team charts (offense and defense) less every player listed out
+    (out_ids: team_id, athlete_id, status), with depth renumbered at each label."""
+    tid = dict(zip(teams.loc[teams["season"] == 2026, "team"], teams.loc[teams["season"] == 2026, "team_id"]))
+    c = chart[chart["unit"].isin(["offense", "defense"])].copy()
+    c["team_id"] = c["team"].map(tid)
+    st = out_ids.drop_duplicates(["team_id", "athlete_id"]).set_index(["team_id", "athlete_id"])["status"].to_dict()
+    c["removed_status"] = [st.get((t, a)) for t, a in zip(c["team_id"], c["athlete_id"])]
+    kept = c[c["removed_status"].isna()].sort_values(["team", "position", "depth"]).copy()
+    kept["depth"] = kept.groupby(["team", "position"]).cumcount() + 1
+    removed = c[c["removed_status"].notna()].assign(depth=np.nan)
+    return pd.concat([kept, removed], ignore_index=True).sort_values(["team", "unit", "position", "depth"])
+
 
 
 # ---------------------------------------------------------------------------- adjusted chart (all units)

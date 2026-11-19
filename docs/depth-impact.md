@@ -24,15 +24,17 @@ players to another group, and the version with CFBD roster positions scores the 
 Players who missed a whole season (same team, last-season starter) add nothing measurable either.
 Nothing in a model config changes.
 
-Code: `src/cfb/lab/depth_impact.py`, `scripts/depth_impact_select.py` (test, this week's impact scores,
-adjusted charts), `scripts/depth_impact_slots.py` (cost by slot). Tests: `tests/test_depth_impact.py`.
+Code: `src/cfb/lab/depth_impact.py`, `scripts/depth_impact_select.py` (tests, backtest charts, this
+week's chart and impact scores), `scripts/depth_impact_week.py` (this week's picks),
+`scripts/depth_impact_slots.py` (cost by slot). Tests: `tests/test_depth_impact.py`.
 
 ```bash
 python -m cfb.core.build
 python scripts/impact_base.py               # model_v2 season-forward margins
 python scripts/injury_select.py --build     # player games and roles (PR 34)
-python scripts/depth_impact_select.py       # ~1.5 min -> data/exploration/depth_impact/
+python scripts/depth_impact_select.py       # ~2 min -> data/exploration/depth_impact/
 python scripts/depth_impact_slots.py
+python scripts/depth_impact_week.py --week 12   # -> /mnt/project-files/reports/depth-impact/week12_2026.{md,csv}
 ```
 
 Needs `data/tables/depth_charts` (tar in `/mnt/project-files/depth-charts/`), the CFBDepth list,
@@ -148,26 +150,54 @@ noisy, and splitting WRs by chart spot shows nothing. TE costs are about 0: leag
 average more EPA per target than starters (0.72 vs 0.68 in 2018-2024), so the replacement rate is
 never lower. EPA per target does not see a tight end's blocking.
 
+## Charts: backtest vs this week
+
+Josiah (2026-11-19): the adjusted charts are for testing against each week of this season; this week
+uses the current charts less every player listed on the injury reports.
+
+**Backtest chart** (`adjusted_depth_charts_backtest_2026.csv`): the 68 team charts (offense and
+defense) with listed-out players who have a real role moved back to their natural spot: 118 players
+(63 offense, 55 defense; 78 at first team). Role = CFBDepth export starter share >= 0.5 (snaps per
+game / team's top-N mean) or an offensive full-strength starter. Spot: his chart spot if he is still
+on offense / defense, else the export alignment with most snaps (OL LT/LG/C/RG/RT, DB CB / slot / FS,
+DL gaps vs outside, LB off-ball vs on the line), at the team's label for that role whose first-team
+player has the lower starter share. Depth: first team for an offensive starter, else behind every
+player at the label with a larger starter share. OL and defensive players are placed but not priced:
+PR 26 and PR 34 found no measurable cost, and box scores do not show offensive linemen, so 2025 cannot
+test it.
+
+**Backtest on 2026 with that chart** (charted teams; other teams as `dc_total`): for each game the
+players listed for that game are taken off and the next man up at the label replaces the starter.
+
+| Version | 2026 listed FBS vs v2 | vs dc_total | 2026 listed P4/ND vs v2 | vs dc_total | 2026 realized FBS vs v2 | vs dc_total |
+| --- | --- | --- | --- | --- | --- | --- |
+| chart_adj: starters = backtest chart first team | -0.0074 (0.0029) | +0.0008 (0.0008) | -0.0129 (0.0044) | +0.0015 (0.0015) | -0.0061 (0.0041) | +0.0001 (0.0007) |
+| chart_adj with discount | -0.0076 (0.0027) | +0.0007 (0.0006) | -0.0120 (0.0042) | +0.0024 (0.0014) | -0.0064 (0.0039) | -0.0003 (0.0008) |
+| dc_total starters, next man up on the backtest chart | -0.0076 (0.0031) | +0.0007 (0.0004) | -0.0132 (0.0046) | +0.0012 (0.0008) | -0.0054 (0.0041) | +0.0007 (0.0004) |
+
+The chart versions are within noise of `dc_total` (usage replacement) and slightly behind it. The
+2026-11-19 chart is hindsight for earlier weeks (it lists players who only emerged later), and charts
+for those weeks do not exist, so this is the closest test available.
+
+**This week's chart** (`depth_charts_week12_2026.csv`): the current charts less every player the
+CFBDepth list has out for the week 12 game with P(out) >= 0.5: Out, Out for Season and Questionable
+(P(out) 0.57); 219 rows removed (148 Out, 71 Questionable), depth renumbered. Probable players stay.
+
 ## This week (week 12, 2026)
 
-`impact_scores_week12_2026.csv`: every full-strength offensive starter (QB, RB, 3 WR, TE) for each
-FBS team's week 12 game, with his touches per game, EPA rate, the replacement and his rate, value
-over the replacement, P(out) from the CFBDepth list, cost under `dc` (with discount) and under
-`dc_total`. 816 starters, 106 listed; 24 cost at least 1 point. Largest (dc_total): Ohio State QB
-Julian Sayin 9.6, Mississippi State QB Kamario Taylor 8.4, North Texas QB Tayven Jackson 8.3,
-Northwestern QB Aidan Chiles 7.7, Pittsburgh QB Mason Heintschel 7.5. The literal version also charges
-Miami (OH) QB David McComb (8.7 before discount, 5.0 after); under `dc_total` his backups have thrown
-more, so he no longer holds the slot.
+`impact_scores_week12_2026.csv`: every full-strength offensive starter (QB, RB, 3 WR, TE; most touches
+so far this season, `dc_total`) for each FBS team's week 12 game: touches per game, EPA rate, the
+replacement (next man up on this week's chart for the 68 charted teams, usage replacement for the
+rest) and his rate, value over the replacement, P(out), cost. 816 starters, 86 listed out; 23 cost at
+least 1 point. Largest: Ohio State QB Julian Sayin 9.6 (next: Luke Fahey), Mississippi State QB
+Kamario Taylor 8.4 (next: Parker Puckett, because chart QB1 AJ Swann is Questionable), North Texas QB
+Tayven Jackson 8.3, Northwestern QB Aidan Chiles 7.7, Pittsburgh QB Mason Heintschel 7.5 (next: Corey
+Dailey; chart QB1 Holden Geriner is Questionable).
 
-`adjusted_depth_charts_week12_2026.csv`: the 68 team charts (offense and defense) with listed-out
-players (P(out) >= 0.5) who have a real role moved back to their natural spot: 118 players (63
-offense, 55 defense). Role = CFBDepth export starter share >= 0.5 (snaps per game / team's top-N
-mean) or an offensive full-strength starter above. Spot: his chart spot if he is still on offense /
-defense, else the export alignment with most snaps (OL LT/LG/C/RG/RT, DB CB / slot / FS, DL gaps vs
-outside, LB off-ball vs on the line), at the team's label for that role whose first-team player has
-the lower starter share. Depth: first team for an offensive starter, else behind every player at
-the label with a larger starter share. OL and defensive players are placed but not priced: PR 26 and
-PR 34 found no measurable cost, and box scores do not show offensive linemen, so 2025 cannot test it.
+`week12_2026.{md,csv}` (`scripts/depth_impact_week.py`): model_v2 plus this cost, next to PR 34's
+fixed_listed. 70 games, 20 move 1+ point, 5 picks flip vs model_v2 (Northwestern at Minnesota, Akron at
+UMass, North Texas at Tulane, South Florida at FAU, Georgia State at Marshall). The depth-chart
+adjustments are mostly smaller than PR 34's (Northwestern +7.7 vs +9.7, Pittsburgh +7.5 vs +9.6).
 
 ## Limits
 
@@ -175,6 +205,8 @@ PR 34 found no measurable cost, and box scores do not show offensive linemen, so
   play, counts benchings, redshirts and departures as injuries, and reads a receiver with no target as
   absent. It favours every version equally, so the comparisons between versions are what it measures.
 - One season with real listings (2026).
+- Questionable players come off this week's chart (Josiah: less any player listed); their cost is
+  still weighted by P(out) 0.57, so a Questionable QB1 makes the QB2 behind him the replacement.
 - 2026 chart spots applied to 2025 assume players kept their spot; the result is the same with roster
   positions.
 - EPA per target for 2024 (last season for 2025 rates) records fewer incompletion targets (64% of

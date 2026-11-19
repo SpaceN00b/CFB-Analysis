@@ -115,3 +115,29 @@ def test_adjusted_chart_puts_out_starter_back():
     assert list(rcb["athlete_id"]) == [105, 103, 104]
     assert bool(rcb.iloc[0]["inserted"]) and rcb.iloc[0]["status"] == "Out"
     assert list(adj[adj["position"] == "LCB"].sort_values("depth")["athlete_id"]) == [101, 102]
+
+
+def test_week_chart_removes_listed_and_renumbers():
+    chart = pd.DataFrame({"team": "T", "unit": "offense", "position": ["QB", "QB", "QB"], "pos_group": "QB",
+                          "depth": [1, 2, 3], "athlete_id": [1, 2, 3], "player": ["a", "b", "c"], "role": "QB"})
+    teams = pd.DataFrame({"season": [2026], "team": ["T"], "team_id": [TEAM]})
+    w = D.week_chart(chart, pd.DataFrame({"team_id": [TEAM], "athlete_id": [1], "status": ["Out"]}), teams)
+    kept = w[w["depth"].notna()].sort_values("depth")
+    assert list(kept["athlete_id"]) == [2, 3] and list(kept["depth"]) == [1, 2]
+    assert w.loc[w["athlete_id"] == 1, "removed_status"].iloc[0] == "Out"
+
+
+def test_chart_replacement_is_next_man_up():
+    u, lab, rost = _setup()
+    sched = _games(2026)
+    # this week's chart lists QB 3 (no snaps) ahead of QB 2: he replaces QB 1 at the league backup rate
+    lab = pd.concat([lab, pd.DataFrame({"season": [2026], "athlete_id": [3], "align": ["QB"], "grp": ["QB"]})])
+    rost = pd.concat([rost, pd.DataFrame({"season": [2026], "team_id": [TEAM], "athlete_id": [3], "rgrp": ["QB"]})])
+    repl = {TEAM: {"QB": {"role": "QB", "ids": [1, 3, 2]}}}
+    p = {(202604, TEAM, 1): 1.0}
+    tf, det = D.team_costs(u, sched, lab, rost, MU, p, False, [2026], groups=("QB",), starter_by="total",
+                           chart_repl=repl)
+    d = det[det["game_id"] == 202604].iloc[0]
+    assert d["athlete_id"] == 1 and d["repl_id"] == 3
+    r1 = (4 * 9.0 + D.K["QB"] * 0.2) / (120 + D.K["QB"])
+    assert np.isclose(tf.set_index("game_id").loc[202604, "qb_cost"], (r1 - 0.05) * 30.0)
