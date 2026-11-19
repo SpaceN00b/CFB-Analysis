@@ -29,7 +29,9 @@ import datetime as dt
 import glob
 import json
 import math
+import re
 import sys
+import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -73,6 +75,9 @@ CHART_ALIGN = {"WR-X": "X", "WR-Z": "Z", "WR-SL": "SLOT", "WR-H": "SLOT", "WR-F"
 SR_MARKET_FIX = {"Miami (FL)": "Miami", "UMass": "Massachusetts", "San Jose State": "San José State",
                  "Appalachian State": "App State", "Louisiana-Monroe": "UL Monroe"}
 
+P4_CONFERENCES = ("ACC", "Big 12", "Big Ten", "SEC")
+P4_EXTRA = ("Notre Dame",)
+INJURY_FILE = "raw/injuries/cfbdepth-player-updates.csv"   # under the data dir
 MIN_DEF_EVENTS = 15      # defender events for a location profile and the role model
 MIN_TARGETS = 15         # targets for a receiver map
 MIN_RUSHES = 30          # rushes for an RB map
@@ -126,7 +131,25 @@ def load(data_dir: str | Path = "data", seasons=(2025, 2026)) -> dict[str, pd.Da
     roster = roster.dropna(subset=["athlete_id"])
     sr = _sportradar_positions(data, seasons)
     return {"plays": plays, "players": players, "teams": teams, "games": games, "roster": roster,
-            "sr_pos": sr, "chart": depth_chart_roles(data)}
+            "sr_pos": sr, "chart": depth_chart_roles(data), "injuries": load_injuries(data / INJURY_FILE)}
+
+
+def _norm_name(s) -> str:
+    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode().lower()
+    s = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b\.?", "", s)
+    return re.sub(r"[^a-z]", "", s)
+
+
+def load_injuries(path: Path) -> pd.DataFrame:
+    """CFBDepth player injury list (Name, Team, Pos, Status, Last Update, Update), the larger
+    injury source (all FBS, non-conference games). Empty when the file is missing."""
+    cols = ["team", "key", "injury_status", "injury_date", "injury_note"]
+    if not path.exists():
+        return pd.DataFrame(columns=cols)
+    u = pd.read_csv(path)
+    u = u.assign(team=u["Team"], key=u["Name"].map(_norm_name), injury_status=u["Status"],
+                 injury_date=u["Last Update"], injury_note=u["Update"])
+    return u.drop_duplicates(["team", "key"])[cols]
 
 
 def chart_role(position: str, pos_group: str, three_man: bool):
@@ -203,6 +226,14 @@ def player_info(b: dict) -> pd.DataFrame:
     r["last"] = r["lastName"].astype("string").str.split().str[-1].str.lower()
     r = r.merge(b["sr_pos"], on=["season", "team", "jersey", "last"], how="left")
     r["player"] = (r["firstName"].fillna("") + " " + r["lastName"].fillna("")).str.strip()
+    inj = b.get("injuries")
+    if inj is not None and len(inj):
+        r["key"] = r["player"].map(_norm_name)
+        r = r.merge(inj, on=["team", "key"], how="left")
+        cur = (r["season"] == r["season"].max()).to_numpy()   # the list is current: latest season only
+        r.loc[~cur, ["injury_status", "injury_date", "injury_note"]] = None
+    else:
+        r["injury_status"] = r["injury_date"] = r["injury_note"] = None
     fine = r["position"].map(lambda p: FINE_POS.get(p) if p in ("DT", "NT", "DE", "EDGE", "CB", "S") else None)
     sr_fine = r["sr_position"].map(lambda p: FINE_POS.get(p) if isinstance(p, str) and p not in ("LB",) else None)
     generic_lb = r["position"].eq("LB") | r["sr_position"].isin(["LB", "MLB", "ILB"])
@@ -212,7 +243,8 @@ def player_info(b: dict) -> pd.DataFrame:
     r["role_coarse"] = r["position"].map(COARSE_POS)
     r.loc[r["role_coarse"].isna(), "role_coarse"] = r["sr_position"].map(COARSE_POS)
     r = r.drop_duplicates(["season", "athlete_id"])[
-        ["season", "athlete_id", "player", "position", "sr_position", "role_fine", "role_coarse"]]
+        ["season", "athlete_id", "player", "position", "sr_position", "role_fine", "role_coarse",
+         "injury_status", "injury_date", "injury_note"]]
     ch = b.get("chart")
     if ch is not None and len(ch):
         r = r.merge(ch.drop(columns=["chart_team", "chart_asof"]), on=["season", "athlete_id"], how="left")
@@ -349,6 +381,36 @@ def role_model(prof: pd.DataFrame, label_col: str, train_mask: np.ndarray, test_
             "n_train": int(tr.sum()), "n_test": int(te.sum()), "confusion": conf, "coef": coef}
 
 
+def role_model_folds(prof: pd.DataFrame, label_col: str, label_ok: np.ndarray, folds: list[np.ndarray],
+                     disp: np.ndarray):
+    """role_model once per fold: train on labeled rows outside the fold, test on the fold's
+    display rows. Rows in a fold take that fold's prediction; accuracy and confusion pool the
+    folds. With one fold this is role_model(train=~fold, test=fold)."""
+    first = None
+    P, pred = None, None
+    truth = prof[label_col].to_numpy()
+    tests, base_hits, per = [], 0, []
+    for f in folds:
+        r = role_model(prof, label_col, label_ok & ~f, disp & f & label_ok)
+        if first is None:
+            first = r
+            P, pred = r["P"].copy(), r["pred"].copy()
+        if r["labels"] != first["labels"]:
+            raise ValueError("folds disagree on role labels")
+        P[f], pred[f] = r["P"][f], r["pred"][f]
+        te = disp & f & label_ok & prof[label_col].isin(first["labels"]).to_numpy()
+        tests.append(te)
+        base_hits += int((truth[te] == r["majority"]).sum())
+        per.append({"n_test": r["n_test"], "acc": r["acc"]})
+    te = np.logical_or.reduce(tests)
+    acc = float((pred[te] == truth[te]).mean()) if te.any() else None
+    conf = pd.crosstab(pd.Series(truth[te], name="listed"), pd.Series(pred[te], name="predicted"))
+    full = role_model(prof, label_col, label_ok, label_ok)   # coefficients on every labeled row
+    return {"labels": first["labels"], "P": P, "pred": pred, "acc": acc,
+            "baseline": base_hits / te.sum() if te.any() else None, "n_train": first["n_train"],
+            "n_test": int(te.sum()), "confusion": conf, "coef": full["coef"], "folds": per}
+
+
 ALIGNMENT = {"IDL": "Interior line", "EDGE": "Edge (end of the line)", "LB": "Box linebacker depth",
              "CB": "Outside corner", "S": "Safety", "NB": "Slot / nickel"}
 
@@ -396,20 +458,23 @@ def primary_location(p: pd.Series, mid_avg: float, center: float) -> str:
 
 
 def defense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int],
-                    team_name: dict) -> dict:
+                    team_name: dict, folds: list[set[int]] | None = None) -> dict:
     e = defense_events(b)
     prof = defender_profiles(e)
     prof = prof.merge(info, on=["season", "athlete_id"], how="left")
     prof = prof[prof["n_events"] >= MIN_DEF_EVENTS].reset_index(drop=True)
     in_conf = prof["team_id"].isin(conf_ids).to_numpy()
     disp = in_conf & (prof["season"] == season).to_numpy()
-    cfbd = role_model(prof, "role_fine", ~in_conf, disp)
-    coarse = role_model(prof, "role_coarse", ~in_conf, disp)
+    # Folds: the display teams split by conference; each fold is predicted by a model trained
+    # on every other team (leave one conference out). One conference = one fold.
+    fm = [prof["team_id"].isin(f).to_numpy() for f in (folds or [conf_ids])]
+    cfbd = role_model_folds(prof, "role_fine", prof["role_fine"].notna().to_numpy(), fm, disp)
+    coarse = role_model_folds(prof, "role_coarse", prof["role_coarse"].notna().to_numpy(), fm, disp)
     has_chart = prof["chart_role"].notna().to_numpy() if "chart_role" in prof else np.zeros(len(prof), bool)
-    use_chart = (has_chart & ~in_conf).sum() >= 100
+    use_chart = min((has_chart & ~f).sum() for f in fm) >= 100
     # Chart labels are a 2026-11-19 snapshot of P4 + Notre Dame: train on the other charted teams,
-    # test on the conference. Without charts the CFBD / Sportradar labels are used as before.
-    fine = role_model(prof, "chart_role", ~in_conf & has_chart, disp & has_chart) if use_chart else cfbd
+    # test on the held-out conference. Without charts the CFBD / Sportradar labels are used.
+    fine = role_model_folds(prof, "chart_role", has_chart, fm, disp) if use_chart else cfbd
     prof["pred_role"] = fine["pred"]
     prof["pred_cfbd"] = cfbd["pred"]
     prof["pred_p"] = fine["P"].max(axis=1)
@@ -446,6 +511,7 @@ def defense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
             "chart_pos": p.get("chart_pos") if isinstance(p.get("chart_pos"), str) else None,
             "chart_depth": int(p["chart_depth"]) if pd.notna(p.get("chart_depth")) else None,
             "cfbd_role": ROLE_NAMES.get(p["role_fine"]) if isinstance(p["role_fine"], str) else None,
+            **_injury(p),
             "games": int(p["n_games"]), "events": int(p["n_events"]),
             "run_tkl": int(p["n_run_tkl"]), "pass_tkl": int(p["n_pass_tkl"]), "sacks": int(p["n_sack"]),
             "hurries": int(p["n_hurry"]), "pbu": int(p["n_pbu"]), "ints": int(p["n_int"]),
@@ -463,6 +529,7 @@ def defense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
     conf_tab = fine["confusion"]
     model = {
         "fine": {"labels": [ROLE_NAMES[c] for c in fine["labels"]], "acc": _r(fine["acc"]),
+                 "folds": [{"n_test": f["n_test"], "acc": _r(f["acc"])} for f in fine.get("folds", [])],
                  "baseline": _r(fine["baseline"]), "n_train": fine["n_train"], "n_test": fine["n_test"],
                  "confusion": {ROLE_NAMES.get(i, i): {ROLE_NAMES.get(j, j): int(conf_tab.loc[i, j])
                                                       for j in conf_tab.columns} for i in conf_tab.index}},
@@ -476,6 +543,13 @@ def defense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
     if use_chart:
         model["chart_check"] = chart_check(prof, disp, has_chart, center)
     return {"players": out, "model": model, "_profiles": prof, "_coef": fine["coef"]}
+
+
+def _injury(p) -> dict:
+    st = p.get("injury_status")
+    if not isinstance(st, str):
+        return {}
+    return {"injury_status": st, "injury_date": p.get("injury_date"), "injury_note": p.get("injury_note")}
 
 
 def chart_check(prof: pd.DataFrame, test: np.ndarray, has_chart: np.ndarray, center: float) -> dict:
@@ -582,7 +656,8 @@ def offense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
     center = float((tl["pass_dir"] == "left").sum() / tl["pass_dir"].isin(["left", "right"]).sum())
     mid_avg = float((tl["pass_dir"] == "middle").mean())
     t = t[(t["season"] == season) & t["team_id"].isin(conf_ids)]
-    ic = ["season", "athlete_id", "player", "position", "chart_pos", "chart_depth", "chart_align"]
+    ic = ["season", "athlete_id", "player", "position", "chart_pos", "chart_depth", "chart_align",
+          "injury_status", "injury_date", "injury_note"]
     by_align = align_summary(tl.merge(info[ic], on=["season", "athlete_id"], how="left"), center)
     t = t.merge(info[ic], on=["season", "athlete_id"], how="left")
     team_tgt = t[t["role"] == "target"].groupby("team_id").size()
@@ -599,6 +674,7 @@ def offense_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[int]
                "pos": g["position"].iloc[0] if isinstance(g["position"].iloc[0], str) else None,
                "chart_pos": g["chart_pos"].iloc[0] if isinstance(g["chart_pos"].iloc[0], str) else None,
                "chart_depth": int(g["chart_depth"].iloc[0]) if pd.notna(g["chart_depth"].iloc[0]) else None,
+               **_injury(g.iloc[0]),
                "games": int(g["game_id"].nunique()), "targets": int(len(tg)), "rushes": int(len(ru)),
                "attempts": int(len(pa)),
                "tgt_share": _r(len(tg) / team_tgt.get(tid, np.nan), 3),
@@ -858,6 +934,7 @@ def receiving_section(b: dict, info: pd.DataFrame, season: int, conf_ids: set[in
                          "pos": names.loc[rid, "position"] if rid in names.index else None,
                          "chart_pos": (names.loc[rid, "chart_pos"] if rid in names.index
                                        and isinstance(names.loc[rid, "chart_pos"], str) else None),
+                         **(_injury(names.loc[rid]) if rid in names.index else {}),
                          "targets": int(len(gr)), "clean_inc": _r(gr["clean_inc"].mean()),
                          "teammates": _r(mates["clean_inc"].mean()), "expected": _r(gr["p_rec"].mean()),
                          "adot": _r(gr["air"].mean(), 1),
@@ -938,13 +1015,25 @@ def build(data_dir="data", season: int = 2026, conference: str = "SEC", fit_seas
     b = load(data_dir, fit_seasons)
     teams = b["teams"]
     ts = teams[teams["season"] == season]
-    conf_ids = set(ts.loc[ts["conference"] == conference, "team_id"].astype(int))
+    if conference.upper() == "P4":
+        # Every charted team: the four power conferences and Notre Dame, one fold per conference.
+        scope = ts["conference"].isin(P4_CONFERENCES) | ts["team"].isin(P4_EXTRA)
+        groups = ts[scope].assign(g=lambda d: d["conference"].where(d["conference"].isin(P4_CONFERENCES), d["team"]))
+        folds = [set(g["team_id"].astype(int)) for _, g in groups.groupby("g")]
+        fold_names = [n for n, _ in groups.groupby("g")]
+        conference = "P4"
+    else:
+        scope = ts["conference"] == conference
+        folds, fold_names = None, [conference]
+    conf_ids = set(ts.loc[scope, "team_id"].astype(int))
     team_name = {int(i): n for i, n in zip(teams["team_id"], teams["team"])}
     info = player_info(b)
     plays = b["plays"]
     ps = plays[plays["season"] == season]
     weeks = sorted(ps["week"].unique().tolist())
-    defense = defense_section(b, info, season, conf_ids, team_name)
+    defense = defense_section(b, info, season, conf_ids, team_name, folds)
+    for f, n in zip(defense["model"]["fine"].get("folds", []), fold_names):
+        f["name"] = n
     result = {
         "meta": {
             "season": season, "conference": conference, "fit_seasons": list(fit_seasons),
@@ -956,6 +1045,7 @@ def build(data_dir="data", season: int = 2026, conference: str = "SEC", fit_seas
             "chart_asof": (pd.Timestamp(b["chart"]["chart_asof"].max()).strftime("%Y-%m-%d")
                            if len(b["chart"]) else None),
             "chart_teams": int(b["chart"]["chart_team"].nunique()) if len(b["chart"]) else 0,
+            "injury_rows": int(len(b["injuries"])), "folds": fold_names,
         },
         "defense": {k: v for k, v in defense.items() if not k.startswith("_")},
         "offense": offense_section(b, info, season, conf_ids, team_name),

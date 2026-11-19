@@ -1,4 +1,4 @@
-<title>SEC Player Maps</title>
+<title>Player Maps</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@600&display=swap">
 <style>
@@ -114,7 +114,7 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
 
 <div class="wrap">
   <header>
-    <h1 id="title">SEC Player Maps</h1>
+    <h1 id="title">Player Maps</h1>
     <div class="sub" id="subtitle"></div>
     <div class="controls">
       <label for="team">Team <select id="team"></select></label>
@@ -152,6 +152,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const pct = (x, d = 0) => x == null ? "\u2013" : (x * 100).toFixed(d) + "%";
 const num = (x, d = 1) => x == null ? "\u2013" : Number(x).toFixed(d);
 const sgn = (x, d = 1) => x == null ? "\u2013" : (x > 0 ? "+" : "") + Number(x).toFixed(d);
+const injPill = r => r && r.injury_status ? ` <span class="pill ${/^Out/.test(r.injury_status) ? "flag" : "watch"}" data-tip="${esc((r.injury_date ? r.injury_date + ": " : "") + (r.injury_note || ""))}">${esc(r.injury_status)}</span>` : "";
 const ordinal = n => n + (n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th");
 const pp = x => x == null ? "\u2013" : sgn(x * 100, 0) + " pts";
 
@@ -234,21 +235,23 @@ function renderDefense() {
   const conf = f.labels.map(l => `<tr><th scope="row">${esc(l)}</th>` + f.labels.map(k => `<td class="num">${(f.confusion[l] || {})[k] ?? 0}</td>`).join("") + `</tr>`).join("");
   const chart = m.labels_from === "depth charts", cc = m.chart_check || {};
   const sideTxt = Object.entries(cc.side || {}).filter(([, v]) => v.z != null).map(([k, v]) => `${esc(k)}: chart-left ${pct(v.L.offense_left_share)} vs chart-right ${pct(v.R.offense_left_share)} of plays to the offense's left (n ${v.L.n}/${v.R.n}, z ${num(v.z, 2)})`).join("; ");
-  let h = `<div class="card"><h2>Role model, tested on SEC defenders it never saw</h2>
-    <p class="hint">${chart ? `Labels are the teams' own depth chart positions (downloaded ${esc(DATA.meta.chart_asof || "")}, P4 and Notre Dame). Trained on ${f.n_train.toLocaleString()} charted non-SEC defenders (2026), tested on charted SEC defenders` : `Trained on ${f.n_train.toLocaleString()} non-SEC FBS defender-seasons (2025 week 9 on and 2026). Scored against listed positions`}, from where each one is credited with tackles, sacks, hurries, breakups and interceptions.</p>
+  const P4 = DATA.meta.conference === "P4", who = P4 ? "each conference's" : esc(DATA.meta.conference);
+  const foldTxt = (f.folds || []).length > 1 ? ` By held-out group: ${f.folds.map(x => `${esc(x.name)} ${pct(x.acc)} (n ${x.n_test})`).join(", ")}.` : "";
+  let h = `<div class="card"><h2>Role model, tested on ${P4 ? "each conference's defenders with that conference held out" : who + " defenders it never saw"}</h2>
+    <p class="hint">${chart ? `Labels are the teams' own depth chart positions (downloaded ${esc(DATA.meta.chart_asof || "")}, P4 and Notre Dame). ${P4 ? "Each conference (and Notre Dame) is predicted by a model trained on the other charted teams" : `Trained on ${f.n_train.toLocaleString()} charted defenders outside the ${who}, tested on charted ${who} defenders`} (2026), using where each one is credited with tackles, sacks, hurries, breakups and interceptions.${foldTxt}` : `Trained on ${f.n_train.toLocaleString()} non-SEC FBS defender-seasons (2025 week 9 on and 2026). Scored against listed positions, from where each one is credited with tackles, sacks, hurries, breakups and interceptions.`}</p>
     <div class="facts">
-      <div class="fact"><div class="k">${f.labels.length} roles</div><div class="v">${pct(f.acc)}</div><div class="d">correct on ${f.n_test} SEC players; guessing the most common role: ${pct(f.baseline)}</div></div>
+      <div class="fact"><div class="k">${f.labels.length} roles</div><div class="v">${pct(f.acc)}</div><div class="d">correct on ${f.n_test} held-out players; guessing the most common role: ${pct(f.baseline)}</div></div>
       ${chart ? `<div class="fact"><div class="k">Same players, nickels left out</div><div class="v">${pct(cc.chart_model_acc_same_players)}</div><div class="d">chart-trained model; the old CFBD-label model gets ${pct(cc.cfbd_model_acc_on_chart)} (n ${cc.n_non_nickel})</div></div>
-      <div class="fact"><div class="k">CFBD position = chart role</div><div class="v">${pct(cc.cfbd_label_agree)}</div><div class="d">of ${cc.cfbd_label_known} SEC defenders with a specific CFBD position</div></div>` : ""}
+      <div class="fact"><div class="k">CFBD position = chart role</div><div class="v">${pct(cc.cfbd_label_agree)}</div><div class="d">of ${cc.cfbd_label_known} held-out defenders with a specific CFBD position</div></div>` : ""}
       <div class="fact"><div class="k">3 groups (DL / LB / DB)</div><div class="v">${pct(c.acc)}</div><div class="d">correct on ${c.n_test}; most common group: ${pct(c.baseline)}</div></div>
     </div>
     <details><summary>Listed role (rows) against model role (columns)</summary><div class="table-scroll"><table><thead><tr><th></th>${f.labels.map(l => `<th class="num">${esc(l)}</th>`).join("")}</tr></thead><tbody>${conf}</tbody></table></div>
     <p class="hint">${chart ? "Nickels are the hardest: they make plays like corners, safeties and linebackers. DE is an edge in a four-man front and an interior end when the chart also lists a stand-up edge (JACK, OLB, ...)." : "Edge and interior linemen are the weak spot: 3-4 outside linebackers and stand-up ends are often listed as LB or DL, and many make plays where off-ball linebackers do."}</p></details>
     ${sideTxt ? `<p class="hint"><b>Chart sides.</b> ${sideTxt}. Chart L/R is the defense's left and right, and corners and ends flip with the formation, so the lean is small.</p>` : ""}</div>`;
   h += `<div class="split"><div class="card"><h2>${esc(state.team)} defenders</h2>
-    <p class="hint">Players with at least ${m.min_events} credited plays in ${DATA.meta.season}. A <span class="pill flag">differs</span> tag means the model's role is not the listed one. Select a row for the field map.</p>` +
+    <p class="hint">Players with at least ${m.min_events} credited plays in ${DATA.meta.season}. A <span class="pill info">role differs</span> tag means the model's role is not the listed one; red and amber tags are the CFBDepth injury status (hover for the note). Select a row for the field map.</p>` +
     table("deft", rows, [
-      {k: "player", label: "Player", fmt: (v, r) => `${esc(v)}${r.mismatch ? ' <span class="pill flag">differs</span>' : ""}`},
+      {k: "player", label: "Player", fmt: (v, r) => `${esc(v)}${r.mismatch ? ' <span class="pill info">role differs</span>' : ""}${injPill(r)}`},
       {k: "chart_pos", label: "Depth chart", sortv: r => r.chart_pos || "~", fmt: (v, r) => v ? `${esc(v)} <span class="muted small">${r.chart_depth ? "#" + r.chart_depth : ""}</span>` : `<span class="muted">\u2013</span>`},
       {k: "pos", label: "CFBD", fmt: (v, r) => esc(v || "\u2013") + (r.sr_pos && r.sr_pos !== v ? ` <span class="muted small">(${esc(r.sr_pos)})</span>` : "")},
       {k: "pred_role", label: "Model role", fmt: (v, r) => `${esc(v)} <span class="muted small">${pct(r.pred_p)}</span>`},
@@ -299,7 +302,7 @@ function renderOffense() {
   h += `<div class="split"><div class="card"><h2>${esc(state.team)} ball carriers, targets and passers</h2>
     <p class="hint">Players with at least 15 targets, 30 rushes or 60 passes in ${DATA.meta.season}. Style is a plain reading of where the player's targets or runs go. Select a row for the maps.</p>` +
     table("offt", rows, [
-      {k: "player", label: "Player"},
+      {k: "player", label: "Player", fmt: (v, r) => esc(v) + injPill(r)},
       {k: "chart_pos", label: "Pos", sortv: r => r.chart_pos || r.pos || "~", fmt: (v, r) => v ? `${esc(v)}${r.chart_depth > 1 ? ` <span class="muted small">#${r.chart_depth}</span>` : ""}` : `${esc(r.pos || "\u2013")} <span class="muted small">CFBD</span>`},
       {k: "style", label: "Style"},
       {k: "targets", label: "Tgt", num: true},
@@ -416,7 +419,7 @@ function renderReceiving() {
   const R = DATA.receiving, m = R.model;
   const t = R.teams.find(x => x.team === state.team);
   const vpill = v => v.startsWith("QB issue") ? `<span class="pill flag">${esc(v)}</span>` : v.startsWith("Both") || v.startsWith("Receiver") ? `<span class="pill flag">${esc(v)}</span>` : v.startsWith("No overall") ? `<span class="pill watch">${esc(v)}</span>` : `<span class="pill ok">${esc(v)}</span>`;
-  let h = `<div class="card"><h2>Drops or the quarterback? SEC overview</h2>
+  let h = `<div class="card"><h2>Drops or the quarterback? ${DATA.meta.conference === "P4" ? "Power 4 and Notre Dame" : esc(DATA.meta.conference)} overview</h2>
     <p class="hint">No source marks drops, so this uses clean incompletions: a pass to a named receiver that falls incomplete with no breakup, interception or hurry credited. That covers drops and plain misses (overthrows, wrong routes). Expected = the same throws (air yards, direction, down) against the same defenses by an average FBS QB and receivers. Select a team.</p>` +
     table("rect", R.teams, [
       {k: "team", label: "Team"}, {k: "targets", label: "Unhurried targets", num: true},
@@ -450,7 +453,7 @@ function renderReceiving() {
     {k: "hurried_share", label: "Hurried share", num: true, fmt: v => pct(v)},
     {k: "flag", label: "", fmt: flagCell}], {sortKey: "targets"});
   h += `<h3>Receivers</h3>` + table("rect2", t.receivers, [
-    {k: "player", label: "Receiver"}, {k: "chart_pos", label: "Pos", sortv: r => r.chart_pos || r.pos || "~", fmt: (v, r) => esc(v || r.pos || "\u2013")},
+    {k: "player", label: "Receiver", fmt: (v, r) => esc(v) + injPill(r)}, {k: "chart_pos", label: "Pos", sortv: r => r.chart_pos || r.pos || "~", fmt: (v, r) => esc(v || r.pos || "\u2013")},
     {k: "targets", label: "Unhurried tgt", num: true}, {k: "adot", label: "Avg depth", num: true, fmt: v => num(v)},
     {k: "clean_inc", label: "Clean inc.", num: true, fmt: v => pct(v, 1)},
     {k: "teammates", label: "Teammates", num: true, fmt: v => pct(v, 1)},
@@ -499,8 +502,9 @@ function render() {
 function init() {
   if (!DATA) { document.getElementById("subtitle").textContent = "No data embedded."; return; }
   const M = DATA.meta;
-  document.getElementById("title").textContent = `${M.conference} Player Maps`;
-  document.title = `${M.conference} Player Maps`;
+  const scopeName = M.conference === "P4" ? "Power 4 and Notre Dame" : M.conference;
+  document.getElementById("title").textContent = `${scopeName} Player Maps`;
+  document.title = `${M.conference === "P4" ? "P4" : M.conference} Player Maps`;
   document.getElementById("subtitle").textContent = `${M.season} season, weeks ${M.weeks ? M.weeks.join("\u2013") : "?"} \u00b7 from the stat crew's play-by-play text \u00b7 test bench, not used by the prediction model`;
   document.getElementById("foot").textContent = `Built ${M.built_utc} UTC \u00b7 ${M.plays_conf.toLocaleString()} ${M.conference} scrimmage plays \u00b7 directions are the offense's`;
   const sel = document.getElementById("team");

@@ -142,6 +142,32 @@ alignment are within 2 points of the model's expectation for every group, with 2
 no Z or slot receiver and 1 RB flagged. SEC team readings are unchanged (Texas A&M is the only
 QB flag).
 
+## All 68 charted teams and injury status (2026-11-19)
+
+`python -m cfb.lab.player_maps --conference P4` scopes the lab to ACC, Big 12, Big Ten, SEC and
+Notre Dame (68 teams). The role model is tested on each group with that group held out (trained
+on the other charted teams), and the results are pooled. 2026 through week 11:
+
+| | Result |
+|---|---|
+| 6 roles | 75.0% of 1,057 held-out charted defenders (most common role 20.3%) |
+| By held-out group | ACC 76.0% (275), Big 12 76.7% (253), Big Ten 72.9% (258), Notre Dame 71.4% (14), SEC 74.7% (257) |
+| Same players, nickels left out | chart-trained 79.1% vs CFBD-label model 69.1% (n 967) |
+| CFBD position agrees with chart role | 82% of 663 defenders with a specific CFBD position |
+| 3 groups (DL / LB / DB) | 90.7% of 1,103 (most common 40%) |
+
+Output: 1,103 defenders, 647 offense players, 167 RBs. QB-issue readings (clean incompletions
+above expectation for the passer): Maryland, Ohio State, Syracuse, Texas A&M, Wisconsin; one
+receiver flag, Nick Marsh (Indiana).
+
+Injury status comes from the local CFBDepth player-updates list
+(`data/raw/injuries/cfbdepth-player-updates.csv`, copy of the 2026-11-18 file; all FBS teams
+except Nebraska), matched on team and normalized name for the latest season only. Rows gain
+`injury_status`, `injury_date` and `injury_note`; 107 defenders and 96 offense players carry one.
+The viewer shows a red tag for Out and amber for other statuses. This is display only; the role
+model does not use it. The SEC-only build (`--conference SEC`) still runs with one held-out fold
+(74.7%, n 257).
+
 ## Model features from the same text
 
 Three feature groups, registered so `cfb.features.build` and the weekly run compute them, but in no
