@@ -134,3 +134,15 @@ def test_policy_is_dated_on_download_time():
     policy = POLICIES["depth_charts"]
     assert policy.kind == DATED and policy.date_col == "asof_utc"
     assert {"athlete_id", "jersey", "player_raw"} <= set(policy.keys)
+
+
+def test_manual_override_settles_duplicate_roster_rows(monkeypatch):
+    frame = pd.DataFrame([{"team": "Utah", "first_name": "Nick", "last_name": "Brown", "jersey": 13,
+                           "player_raw": "Brown, Nick"}])
+    roster = pd.DataFrame([{"id": i, "team": "Utah", "firstName": "Nick", "lastName": "Brown", "jersey": 13,
+                            "position": "CB"} for i in (518520, 5226164)])
+    monkeypatch.setattr(dc, "PLAYER_OVERRIDES", {})
+    assert dc.match_players(frame, roster).loc[0, "match"] == "none"
+    monkeypatch.setattr(dc, "PLAYER_OVERRIDES", {("Utah", 13, "Brown, Nick"): "5226164"})
+    out = dc.match_players(frame, roster)
+    assert out.loc[0, ["athlete_id", "match", "roster_position"]].tolist() == ["5226164", "manual", "CB"]

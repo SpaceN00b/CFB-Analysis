@@ -65,6 +65,11 @@ ROSTER_GROUPS = {"QB": "QB", "RB": "RB", "FB": "RB", "WR": "WR", "TE": "TE", "OL
 # Source team names that are not CFBD "school mascot" or "alternate name mascot".
 TEAM_OVERRIDES = {"mississippi rebels": "Ole Miss"}
 
+# (CFBD team, jersey, player as given) -> CFBD athlete id, for players the roster cannot
+# settle. Utah's Nick Brown (#13 CB) has two identical 2026 roster rows; 5226164 is the one
+# with 2026 Utah game stats (and the 2025 Lamar #13 CB row), 518520 has no stats.
+PLAYER_OVERRIDES = {("Utah", 13, "Brown, Nick"): "5226164"}
+
 SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 
 
@@ -150,6 +155,13 @@ def match_players(frame: pd.DataFrame, roster: pd.DataFrame) -> pd.DataFrame:
     by_team = {t: g for t, g in ros.groupby("team")}
 
     for idx, row in frame.iterrows():
+        manual = PLAYER_OVERRIDES.get((row["team"], row.get("jersey"), row.get("player_raw")))
+        if manual is not None:
+            frame.at[idx, "athlete_id"] = manual
+            frame.at[idx, "match"] = "manual"
+            hit = ros[ros["id"] == manual]
+            frame.at[idx, "roster_position"] = hit["position"].iloc[0] if len(hit) else None
+            continue
         team = by_team.get(row["team"])
         if team is None:
             continue

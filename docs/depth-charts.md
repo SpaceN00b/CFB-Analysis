@@ -55,7 +55,8 @@ Vanderbilt labels its line by quick and strong side (QT QG C SG ST), not left an
 
 **Player match** (same team, 2026 CFBD roster): jersey and last name, then full name (first
 and last run together), then a last name unique on the team with the same first initial,
-then jersey and first name. Two roster rows that fit equally are left unmatched.
+then jersey and first name. Two roster rows that fit equally are left unmatched unless
+`PLAYER_OVERRIDES` names the id (`match` = `manual`).
 
 ## Point in time
 
@@ -73,10 +74,11 @@ before the first download and no backtest yet.
 | Batch | Downloaded (asof_utc) | Teams | Rows | Roster match |
 | --- | --- | --- | --- | --- |
 | 1 | 2026-11-19T04:01:16Z (upload time) | 15: SEC except Alabama and Arkansas, plus Illinois | 1,339 | 100% |
-| 2 | 2026-11-19T04:06:01Z (latest file time) | 17: Alabama, Arkansas, Big 12 except Arizona | 1,395 | 99.8% |
+| 2 | 2026-11-19T04:06:01Z (latest file time) | 17: Alabama, Arkansas, Big 12 except Arizona | 1,395 | 99.9% |
 
-Unmatched: Utah's Nick Brown (two identical rows in the CFBD roster) and West Virginia's
-NaQuari Rogers (not on the CFBD roster).
+Unmatched: West Virginia's NaQuari Rogers (not on the CFBD roster). Utah's Nick Brown (#13,
+defense) has two identical 2026 CFBD roster rows; the override picks 5226164, the one with
+2026 Utah game stats (518520 has none).
 
 **Compared with the playing-time starters** built from the CFBDepth stat exports
 (`starters.csv`, 87% against the 7 lineup PNGs): they hold 599 of the 710 first-team
