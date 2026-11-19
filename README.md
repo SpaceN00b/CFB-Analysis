@@ -16,6 +16,7 @@ spread and total for every game, scored against the closing lines.
 | Win-probability model (`model_v1`) | done | `cfb.model`, `cfb.predict`, [docs/model.md](docs/model.md) |
 | Spread and total (phase 2) | done | `cfb.model.points_config`, `cfb.eval.points`, [docs/points.md](docs/points.md) |
 | Weekly report, dashboard | done | `cfb.report`, `cfb.run_week`, `dashboard/`, [docs/report.md](docs/report.md) |
+| Depth chart import (dated snapshots, all 68 P4 + Notre Dame on 2026-11-19) | done | `cfb.depth_charts`, [docs/depth-charts.md](docs/depth-charts.md) |
 
 Baselines to beat, season-forward on 2018 to 2025 (6,024 FBS vs FBS games): closing spread
 log loss 0.520, CFBD pregame Elo plus home field 0.549, home team always 0.679.
@@ -54,6 +55,7 @@ python -m cfb.features.build --list      # feature catalog: column, description,
 python -m cfb.features.build --tables    # which tables feature code may read, and from when
 python -m cfb.features.build --leak-test # leak-test the registered feature groups on the real data
 python -m cfb.core.samples               # rewrite samples/ from the snapshot
+python -m cfb.depth_charts import PATH --asof <download time>   # team depth chart CSVs, docs/depth-charts.md
 ```
 
 ## Layout
@@ -61,6 +63,7 @@ python -m cfb.core.samples               # rewrite samples/ from the snapshot
 ```
 src/cfb/
   client.py, store.py, ingest.py   CFBD client, local store, pull            (ingest: W2)
+  depth_charts.py                  import team depth chart CSVs (dated)
   core/                            foundations                               (W1)
     game_index.py                  game_index, weeks, teams, game_pregame
     pbp.py, team_game.py           plays with shared definitions; two rows per game

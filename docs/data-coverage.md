@@ -250,6 +250,13 @@ unknown.
 **CORE.** Empty for 2014 and 2015. Past seasons are through the postseason; 2026 is through
 regular week 11.
 
+## Depth charts (imported, not CFBD)
+
+`depth_charts`: team depth chart CSVs imported with `python -m cfb.depth_charts`, one dated
+partition per team and download. All 68 P4 teams and Notre Dame downloaded 2026-11-19
+(5,826 rows, 99.9% matched to CFBD roster ids). Separate snapshot in project files `depth-charts/`. Details:
+[depth-charts.md](depth-charts.md).
+
 ## Dated rating copies
 
 SP+, FPI, SRS and CORE are stored by CFBD as one current value per team and season. From

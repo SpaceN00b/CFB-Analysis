@@ -101,7 +101,7 @@ Errors: `UnknownTableError` (no policy), `BannedTableError` (season table, own s
 | pregame | The game's own cutoff is at or before the view's: past games and the slate. | `game_pregame`, `lines`, `media`, `weather` |
 | preseason | Season up to the cutoff season. | `teams`, `teams_fbs`, `talent`, `returning_production`, `recruiting_teams`, `ratings_elo_preseason` |
 | season final | `view.table` raises. `view.prior_seasons` returns seasons whose last calendar week ended before the cutoff. | `ratings_sp`, `ratings_fpi`, `ratings_srs`, `ratings_elo`, `ratings_core`, `records`, `stats_season_advanced`, `coaches` |
-| dated | The row's own timestamp is at or before the cutoff. | `unit_ratings` (`cutoff_utc`), `transfer_portal` (`transferDate`), `ratings_sp_asof`, `ratings_fpi_asof`, `ratings_srs_asof`, `ratings_core_asof` (`asof_utc`) |
+| dated | The row's own timestamp is at or before the cutoff. | `unit_ratings` (`cutoff_utc`), `transfer_portal` (`transferDate`), `ratings_sp_asof`, `ratings_fpi_asof`, `ratings_srs_asof`, `ratings_core_asof`, `depth_charts` (`asof_utc`) |
 | weekly | "pre": the calendar week has started. "post": it has ended. | `rankings` (regular pre, postseason post), `ratings_elo_weekly` (post) |
 | static | Always. | `venues`, `calendar`, `weeks`, `coach_tenures` (see below) |
 
