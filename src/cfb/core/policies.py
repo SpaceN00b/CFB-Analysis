@@ -207,6 +207,12 @@ POLICIES: dict[str, TablePolicy] = {
     "ratings_fpi_asof": TablePolicy(DATED, date_col="asof_utc", season_col="season"),
     "ratings_srs_asof": TablePolicy(DATED, date_col="asof_utc", season_col="season"),
     "ratings_core_asof": TablePolicy(DATED, date_col="asof_utc", season_col="season"),
+    "depth_charts": TablePolicy(DATED, date_col="asof_utc", season_col="season",
+                                keys=PLAYER_KEYS + ("athlete_id", "player_raw", "first_name", "last_name",
+                                                    "suffix", "jersey", "source_team", "source_file"),
+                                note="imported team depth chart CSVs (python -m cfb.depth_charts); "
+                                     "asof_utc = when the charts were downloaded, not when the team "
+                                     "published them"),
     # ---- raw: weekly ---------------------------------------------------------------
     "ratings_elo_weekly": TablePolicy(WEEKLY, season_col="season", season_type_col="season_type",
                                       weekly={"regular": "post", "postseason": "post"},
