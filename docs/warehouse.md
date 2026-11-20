@@ -1,12 +1,26 @@
 # Warehouse publish and sync (Cloudflare R2)
 
 The cloud weekly run publishes the Parquet warehouse to the private R2 bucket `cfb-warehouse`;
-the PC app syncs it. The cloud is the only writer. Code: `src/cfb/warehouse_sync.py`.
+the PC app syncs it. Since the local engine (`cfb.engine`, docs/local-app.md), the PC publishes
+too, after each of its runs. Run one writer at a time. Code: `src/cfb/warehouse_sync.py`.
 
-## What is published
+Each edition has its own bucket: `cfb-warehouse` (main) and `cfb-warehouse-exp` (experimental).
+The experimental edition reads `bucket_experimental` from `r2.toml`, never `bucket`, and refuses
+the main bucket, so it cannot write main's data.
 
-Every file under `tables/`, `core/`, `derived/`, `features/`, `predictions/`, `reports/` of the
-data dir. `raw/` (API JSON) and the dated-copy archive stay in the cloud.
+## What is published: two channels
+
+| Channel | Prefix | Files | Used by |
+| --- | --- | --- | --- |
+| slim (default) | none | every file under `tables/`, `core/`, `derived/`, `features/`, `predictions/`, `reports/` | the app's Data > Sync now, cloud threads |
+| full | `full/` | the same plus `raw/` (API JSON, dated SP+/FPI/SRS/CORE copies under `raw/*_asof` and `tables/*_asof`) | `cfb.engine bootstrap` on a PC, the PC's backup |
+
+`python -m cfb.warehouse_sync publish --channel full --data-dir data` publishes the full channel;
+`sync --channel full` downloads it. Each channel has its own manifests and blobs under its prefix,
+so pruning one never touches the other.
+
+First full publish, week 12 2026 (2026-11-20 06:28Z, from a live cloud run: 274 API calls, the
+dated copies of 2026-11-17 and 2026-11-20): 4,706 files, 4,499 blobs, 576 MB; upload about 4 minutes.
 
 First publish, week 12 2026 (2026-11-18): 2,200 files, 1,989 distinct blobs, 302 MB
 (tables 217 MB, core 49 MB, features 23 MB, derived 12 MB, reports 1.4 MB, predictions 0.9 MB).

@@ -7,7 +7,11 @@ One codebase runs in two places:
   exists. These are the values the code used before this module existed.
 - Packaged app (`sys.frozen`, the Windows .exe): data under the user's local app-data folder
   (`%LOCALAPPDATA%\\cfb\\data` on Windows), a user config under `%APPDATA%\\cfb\\config.toml`,
-  and the run config bundled with the app as the fallback.
+  the dated-copy archive under `%LOCALAPPDATA%\\cfb\\asof`, and the run config bundled with the
+  app as the fallback.
+
+The folder name (`cfb`) and the keyring service come from the edition (cfb.edition): the
+experimental edition uses `cfb-exp` for both, so the two editions never share files or keys.
 
 Every value can be overridden with an environment variable:
 
@@ -22,9 +26,11 @@ Secrets (`secret()`): an environment variable first, then the OS keyring (Window
 Manager) when the optional `keyring` package is installed and has a working backend, then the
 user's secrets file, else None. `set_secret` writes to the keyring and reads the value back; when
 the keyring is missing or does not keep the value, it writes the secrets file instead
-(`%APPDATA%\\cfb\\secrets.json`, each value encrypted for the Windows user with DPAPI; on other
-systems a file only the user can read). Either way the value is still there on the next launch.
-In the cloud the CFBD key is injected by a proxy, so None is the normal answer there.
+(`%APPDATA%\\<folder>\\secrets.json`, each value encrypted for the Windows user with DPAPI; on
+other systems a file only the user can read). Either way the value is still there on the next
+launch. In the cloud the CFBD key is injected by a proxy, so None is the normal answer there.
+A non-main edition without its own CFBD key reads main's (keyring, then main's secrets file; the
+CFBD key only reads public data); R2 keys are never shared.
 
     CFB_SECRETS_FILE    the secrets file (tests)
 """
@@ -34,8 +40,13 @@ import os
 import sys
 from pathlib import Path
 
-APP = "cfb"
-KEYRING_SERVICE = "cfb"
+from . import edition as _edition
+
+EDITION = _edition.current()
+APP = EDITION.folder
+KEYRING_SERVICE = EDITION.keyring_service
+# Secrets a non-main edition may read from main's keyring when it has none of its own.
+SHARED_SECRETS = ("cfbd_api_key",)
 DEFAULT_PROJECT_FILES = Path("/mnt/project-files")
 REPO_CONFIG = Path("dashboard") / "config.toml"
 
@@ -131,13 +142,16 @@ def snapshot_dir() -> Path | None:
 
 
 def asof_archive() -> Path | None:
-    """Dated rating copies folder, or None when there is none (local app without one)."""
+    """Dated rating copies folder: $CFB_ASOF_ARCHIVE, the project files archive, the packaged
+    app's own folder (%LOCALAPPDATA%\\cfb\\asof), else None (source checkout without one)."""
     env = _env_path("CFB_ASOF_ARCHIVE")
     if env is not None:
         return env
     snap = snapshot_dir()
     if snap is not None and (snap / "asof").exists():
         return snap / "asof"
+    if frozen():
+        return user_data_root() / "asof"
     return None
 
 
@@ -263,35 +277,72 @@ def _file_set(name: str, value: str | None) -> None:
 
 # ---- secrets -----------------------------------------------------------------------------------
 
-def _keyring_get(name: str) -> str | None:
+def _main_service() -> str:
+    return _edition.EDITIONS[_edition.MAIN].keyring_service
+
+
+def _shares_main(name: str) -> bool:
+    """True when this edition may fall back to main's copy of the secret (the CFBD key only)."""
+    return name in SHARED_SECRETS and KEYRING_SERVICE != _main_service()
+
+
+def main_secrets_file() -> Path:
+    """Main edition's secrets file (read only, for SHARED_SECRETS)."""
+    return user_config_root().with_name(_edition.EDITIONS[_edition.MAIN].folder) / "secrets.json"
+
+
+def _keyring_get(name: str, service: str | None = None) -> str | None:
     kr = _keyring()
     if kr is None:
         return None
     try:
-        return kr.get_password(KEYRING_SERVICE, name) or None
+        return kr.get_password(service or KEYRING_SERVICE, name) or None
     except Exception:  # no usable keyring backend (headless Linux, CI)
         return None
 
 
-def secret(name: str) -> str | None:
-    """A secret by name (see SECRET_ENV): environment variable, then OS keyring, then the secrets
-    file, else None."""
+def _main_file_secret(name: str) -> str | None:
+    import json
+
+    try:
+        d = json.loads(main_secrets_file().read_text(encoding="utf-8"))
+        return _decode(d.get(name)) if isinstance(d, dict) else None
+    except Exception:
+        return None
+
+
+def _lookup(name: str) -> tuple[str | None, str | None]:
+    """(value, source) for a secret: environment, keyring, file, then main's keyring / main file."""
     env = SECRET_ENV.get(name)
     if env and os.environ.get(env):
-        return os.environ[env]
-    return _keyring_get(name) or _file_secret(name)
+        return os.environ[env], "environment"
+    v = _keyring_get(name)
+    if v:
+        return v, "keyring"
+    v = _file_secret(name)
+    if v:
+        return v, "file"
+    if _shares_main(name):
+        v = _keyring_get(name, _main_service())
+        if v:
+            return v, "main keyring"
+        if os.environ.get("CFB_SECRETS_FILE") is None:  # tests point at their own file only
+            v = _main_file_secret(name)
+            if v:
+                return v, "main file"
+    return None, None
+
+
+def secret(name: str) -> str | None:
+    """A secret by name (see SECRET_ENV): environment variable, then OS keyring, then the secrets
+    file (then main's copies, for the CFBD key in a non-main edition), else None."""
+    return _lookup(name)[0]
 
 
 def secret_source(name: str) -> str | None:
-    """Where secret(name) comes from: "environment", "keyring", "file", or None when it is not set."""
-    env = SECRET_ENV.get(name)
-    if env and os.environ.get(env):
-        return "environment"
-    if _keyring_get(name):
-        return "keyring"
-    if _file_secret(name):
-        return "file"
-    return None
+    """Where secret(name) comes from: "environment", "keyring", "file", "main keyring",
+    "main file", or None when it is not set."""
+    return _lookup(name)[1]
 
 
 def set_secret(name: str, value: str) -> str:

@@ -1,29 +1,48 @@
 name: windows-app
 
-# Builds the packaged Windows app (PyInstaller + Inno Setup) and smoke-tests it on pull requests.
-# A release (GitHub Release tagged build-<run number>) is published only when the workflow is
-# run by hand (Actions > windows-app > Run workflow) on main: new builds ship only when asked.
-# The app's update check (cfb.ui.update) compares its build number with the latest release.
-# The release holds code only: no data, no keys.
+# Builds the packaged Windows app (PyInstaller + Inno Setup) and smoke-tests it on pull requests:
+# selftest with the key store and Task Scheduler checks, the local engine end to end on the
+# synthetic store, and the UI server. The installer is a workflow artifact (14 days).
+#
+# Editions (cfb.edition): `main` (CFB Predictor) and `experimental` (CFB Predictor Experimental,
+# installs side by side with its own data, keys, schedule and bucket). Pull requests build main;
+# a manual run (Actions > windows-app > Run workflow) picks the edition and the branch.
+#
+# A GitHub Release is published only by a manual run with "publish" ticked: main edition on main
+# (tag build-<run>), experimental edition on any other branch (tag exp-build-<run>). New builds
+# ship only when asked. The app's update check (cfb.ui.update) compares its build number with
+# the newest release of its own edition. Releases hold code only: no data, no keys.
 
 on:
   pull_request:
-    paths: ["src/cfb/ui/**", "src/cfb/settings.py", "packaging/**", "pyproject.toml", ".github/workflows/windows-app.yml"]
+    paths: ["src/cfb/**", "packaging/**", "pyproject.toml", "dashboard/config.toml", ".github/workflows/windows-app.yml"]
   workflow_dispatch:
+    inputs:
+      edition:
+        description: "Edition to build"
+        type: choice
+        options: [main, experimental]
+        default: main
+      publish:
+        description: "Publish a GitHub Release (only when Josiah asked for one)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-app-${{ github.ref }}
+  group: windows-app-${{ github.ref }}-${{ inputs.edition || 'main' }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     permissions:
-      contents: write   # create the release (manual run on main only)
+      contents: write   # create the release (manual run with publish only)
+    env:
+      EDITION: ${{ inputs.edition || 'main' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,32 +52,38 @@ jobs:
           cache-dependency-path: pyproject.toml
       - name: Install
         run: pip install ".[ui,dev]" pyinstaller
-      - name: Stamp build number
+      - name: Stamp build number and edition
         shell: bash
-        run: printf 'BUILD = "%s"\nCOMMIT = "%s"\n' "${{ github.run_number }}" "${{ github.sha }}" > src/cfb/_build.py
+        run: printf 'BUILD = "%s"\nCOMMIT = "%s"\nEDITION = "%s"\n' "${{ github.run_number }}" "${{ github.sha }}" "$EDITION" > src/cfb/_build.py
       - name: Build app
         run: pyinstaller packaging/cfb_app.spec --noconfirm
       - name: Smoke test
-        run: python packaging/smoke.py "dist/CFB Predictor/CFB Predictor.exe"
+        shell: bash
+        run: CFB_EDITION="$EDITION" python packaging/smoke.py "dist/CFB Predictor/CFB Predictor.exe"
       - name: Build installer
         shell: pwsh
         run: |
           $iscc = Get-Command iscc -ErrorAction SilentlyContinue
           if (-not $iscc) { choco install innosetup -y --no-progress | Out-Null; $env:Path += ";C:\Program Files (x86)\Inno Setup 6" }
-          iscc /DBuild=${{ github.run_number }} packaging\installer.iss
+          iscc /DBuild=${{ github.run_number }} /DEdition=$env:EDITION packaging\installer.iss
       - name: Upload installer (workflow artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: CFB-Predictor-Setup-build-${{ github.run_number }}
-          path: dist/CFB-Predictor-Setup-build-*.exe
+          name: CFB-Predictor-${{ env.EDITION }}-Setup-build-${{ github.run_number }}
+          path: dist/CFB-Predictor-*Setup-build-*.exe
           retention-days: 14
       - name: Publish release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        if: >-
+          github.event_name == 'workflow_dispatch' && inputs.publish &&
+          ((inputs.edition == 'main' && github.ref == 'refs/heads/main') ||
+           (inputs.edition == 'experimental' && github.ref != 'refs/heads/main'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "build-${{ github.run_number }}" dist/CFB-Predictor-Setup-build-*.exe \
-            --title "CFB Predictor build ${{ github.run_number }}" \
-            --notes "Windows installer built from ${{ github.sha }}. Install over the previous build; data and keys are kept." \
+          if [ "$EDITION" = experimental ]; then tag="exp-build-${{ github.run_number }}"; title="CFB Predictor Experimental build ${{ github.run_number }}"; flags="--prerelease"
+          else tag="build-${{ github.run_number }}"; title="CFB Predictor build ${{ github.run_number }}"; flags=""; fi
+          gh release create "$tag" dist/CFB-Predictor-*Setup-build-*.exe $flags \
+            --title "$title" \
+            --notes "Windows installer ($EDITION edition) built from ${{ github.sha }}. Install over the previous build; data and keys are kept." \
             --target "${{ github.sha }}"

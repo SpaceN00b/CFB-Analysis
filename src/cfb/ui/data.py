@@ -12,17 +12,24 @@ from .. import settings
 SEASON_TYPE_ORDER = {"regular": 0, "postseason": 1}
 
 
+def newest_report_key(data_dir: Path) -> tuple:
+    reports = list_reports(data_dir)
+    return report_sort_key(reports[0][0]) if reports else (0, 0, 0)
+
+
 def resolve_data_dir() -> Path:
-    """The synced warehouse copy when one exists (packaged app), else settings.data_dir()."""
+    """Which data the pages read: the local engine's data dir (settings.data_dir()) or the copy
+    synced from the cloud (Data > Sync now), whichever has the newer report week; the local data
+    wins a tie, because the engine ran on this PC. Without a synced copy: settings.data_dir()."""
+    local = settings.data_dir()
     try:
-        from ..warehouse_sync import current_data_dir  # added by the R2 sync step
-    except ImportError:
-        return settings.data_dir()
-    try:
-        current = current_data_dir(settings.warehouse_dir())
+        from ..warehouse_sync import current_data_dir
+        synced = current_data_dir(settings.warehouse_dir())
     except Exception:
-        current = None
-    return Path(current) if current else settings.data_dir()
+        synced = None
+    if synced is None:
+        return local
+    return local if newest_report_key(local) >= newest_report_key(Path(synced)) else Path(synced)
 
 
 def data_version(data_dir: Path) -> dict | None:

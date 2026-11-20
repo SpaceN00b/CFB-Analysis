@@ -1,9 +1,11 @@
 """The PC's Cloudflare R2 connection: save the read-only key pair once, check it, and the app
 preferences (sync at launch). No Streamlit here, so it is testable without the UI.
 
-The keys go through `cfb.settings.set_secret` (Windows Credential Manager, else a DPAPI-encrypted
-file under %APPDATA%\\cfb), so they are there on every later launch and after installing a new
-build. Preferences: %APPDATA%\\cfb\\app.json.
+The keys go through `cfb.settings.set_secret` (Windows Credential Manager under the edition's
+service, else a DPAPI-encrypted file in the edition's %APPDATA% folder), so they are there on every
+later launch and after installing a new build. Preferences: app.json in the same folder
+(%APPDATA%\\cfb for main, %APPDATA%\\cfb-exp for experimental). The bucket comes from
+`warehouse_sync.r2_settings()`, which gives the edition's bucket and refuses main's in experimental.
 """
 from __future__ import annotations
 
