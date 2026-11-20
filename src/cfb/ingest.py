@@ -89,13 +89,14 @@ def box_rows(payload: list) -> list[dict]:
 class Dataset:
     name: str
     path: str
-    grain: str  # "static" | "year" | "season_type" | "week" | "regular_week" | "team"
+    grain: str  # "static" | "year" | "season_type" | "week" | "regular_week" | "team" | "game_week"
     params: dict = field(default_factory=dict)
     lag: int = 0  # also pull this many years before the first requested season
     lead: int = 0  # also pull this many years after the last requested season
     asof: bool = False  # keep a dated copy on every run while the season is current
     ended_only: bool = False  # week grains: pull a week only after it has ended
     reshape: Callable[[list], list[dict]] | None = None  # payload -> rows of the table
+    final: bool = False  # a cached key is never pulled again, even with --force
 
 
 DATASETS = [
@@ -148,9 +149,12 @@ DATASETS = [
     Dataset("ratings_elo_weekly", "/ratings/elo", "regular_week", ended_only=True),
     # One request per FBS team; the response is the team's full head-coach history.
     Dataset("coach_tenures", "/coaches/tenures", "team"),
+    # Per-play player attribution: one request per completed game, stored per ended week.
+    Dataset("plays_stats", "/plays/stats", "game_week", final=True),
 ]
 BY_NAME = {d.name: d for d in DATASETS}
 WEEK_GRAINS = ("week", "regular_week")
+ROW_CAP = 2000  # /plays/stats returns at most this many records per request
 
 
 def current_season(now: datetime) -> int:
@@ -287,6 +291,44 @@ def run(
             failures.append(f"{ds.name}/{key}: {exc}")
             print(f"  {ds.name}/{key}: FAILED {exc}", file=sys.stderr)
 
+    def pull_game_weeks(ds: Dataset, year: int, weeks: dict[str, list[int]], windows: dict) -> None:
+        """One request per completed game of each ended week; the week's rows are one partition.
+
+        Game ids come from the cached `games` partition (pulled here if missing). Weeks with
+        unknown dates are pulled only for past seasons.
+        """
+        games_ds = BY_NAME["games"]
+        for st in SEASON_TYPES:
+            gkey = f"{year}_{st}"
+            if not store.has(games_ds.name, gkey):
+                pull(games_ds, gkey, {"year": year, "seasonType": st}, {"season": year, "season_type": st})
+            if not store.has(games_ds.name, gkey):
+                continue
+            games = store.read_raw(games_ds.name, gkey)
+            for wk in weeks[st]:
+                key = f"{year}_{st}_{wk:02d}"
+                if store.has(ds.name, key) and (ds.final or not force):
+                    continue
+                window = windows.get((st, wk))
+                if (window and window[1] > now) or (not window and year >= live_from):
+                    continue  # week not ended, or cannot tell
+                ids = sorted({g["id"] for g in games if g.get("week") == wk and g.get("completed")})
+                if not ids:
+                    continue
+                rows: list = []
+                try:
+                    for gid in ids:
+                        part = client.get(ds.path, **ds.params, gameId=gid)
+                        if len(part) >= ROW_CAP:
+                            raise CFBDError(f"gameId {gid} returned {len(part)} rows (cap {ROW_CAP})")
+                        rows.extend(part)
+                except CFBDError as exc:
+                    failures.append(f"{ds.name}/{key}: {exc}")
+                    print(f"  {ds.name}/{key}: FAILED {exc}", file=sys.stderr)
+                    continue
+                n = save(store, ds.name, key, rows, {"season": year, "season_type": st, "week": wk}, ds.reshape)
+                print(f"  {ds.name}/{key}: {len(ids)} games, {n} rows")
+
     for ds in selected:
         if ds.grain == "static":
             pull(ds, "all", {}, {})
@@ -299,10 +341,13 @@ def run(
     for year in sorted(by_year):
         print(f"season {year}")
         todo = by_year[year]
-        needs_weeks = any(d.grain in WEEK_GRAINS for d in todo)
+        needs_weeks = any(d.grain in (*WEEK_GRAINS, "game_week") for d in todo)
         weeks = weeks_for(client, store, year, force) if needs_weeks else dict(FALLBACK_WEEKS)
         windows = week_windows(store, year) if needs_weeks else {}
         for ds in todo:
+            if ds.grain == "game_week":
+                pull_game_weeks(ds, year, weeks, windows)
+                continue
             for key, params, extra in tasks(ds, year, weeks):
                 if ds.grain in WEEK_GRAINS:
                     window = windows.get((extra["season_type"], extra["week"]))

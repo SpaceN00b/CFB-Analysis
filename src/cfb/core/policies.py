@@ -158,6 +158,10 @@ POLICIES: dict[str, TablePolicy] = {
                                         keys=PLAYER_KEYS),
     "passing_players_games": TablePolicy(GAME, game_col="gameId", season_col="season",
                                          keys=PLAYER_KEYS, note="FBS passers; data from 2025 only"),
+    "plays_stats": TablePolicy(GAME, game_col="gameId", season_col="season",
+                               keys=("playId", "athleteId", "statType"),
+                               note="player x play attribution; intended receiver on incompletions "
+                                    "('Target') is missing for part of the games"),
     "ppa_players_games": TablePolicy(WEEKLY, season_col="season", season_type_col="season_type",
                                      weekly={"regular": "post", "postseason": "post"}, keys=PLAYER_KEYS,
                                      note="no gameId in the API: rows are visible when their calendar "

@@ -277,3 +277,46 @@ def test_cli_coverage_prints_table(tmp_path, capsys):
     Store(tmp_path).write("games", "2025_regular", [{"id": 1}])
     assert main(["--coverage", "--data-dir", str(tmp_path)]) == 0
     assert "| games | 1 |" in capsys.readouterr().out
+
+
+def test_plays_stats_one_request_per_completed_game_of_ended_weeks(tmp_path):
+    s = Store(tmp_path)
+    s.write("calendar", "2026", calendar(2026))
+    s.write("games", "2026_regular", [
+        {"id": 11, "week": 1, "completed": True},
+        {"id": 12, "week": 1, "completed": True},
+        {"id": 13, "week": 1, "completed": False},  # cancelled or not played
+        {"id": 21, "week": 2, "completed": True},  # week 2 has not ended on NOV_17
+    ])
+    s.write("games", "2026_postseason", [])
+
+    def payload(path, params):
+        if path == "/calendar":
+            return calendar(2026)
+        assert path == "/plays/stats"
+        gid = params["gameId"]
+        return [{"gameId": gid, "playId": f"{gid}01", "athleteId": "7", "statType": "Target", "stat": 1,
+                 "clock": {"minutes": 15, "seconds": 0}}]
+
+    c = FakeClient(payload)
+    assert run(c, s, [2026], ["plays_stats"], now=NOV_17) == []
+    assert [p["gameId"] for _, p in c.requests] == [11, 12]
+    table = s.load("plays_stats")
+    assert list(table["gameId"]) == [11, 12] and set(table["week"]) == {1}
+    assert set(table["season_type"]) == {"regular"} and "clock.minutes" in table
+
+    # A cached week is final: not pulled again, even with --force.
+    c2 = FakeClient(payload)
+    run(c2, s, [2026], ["plays_stats"], force=True, now=NOV_17)
+    assert [p for path, p in c2.requests if path == "/plays/stats"] == []
+
+
+def test_plays_stats_week_fails_whole_when_a_game_hits_the_row_cap(tmp_path):
+    s = Store(tmp_path)
+    s.write("calendar", "2025", calendar(2025))
+    s.write("games", "2025_regular", [{"id": 1, "week": 1, "completed": True}])
+    s.write("games", "2025_postseason", [])
+    c = FakeClient(lambda path, params: [{"gameId": 1}] * 2000)
+    failures = run(c, s, [2025], ["plays_stats"], now=NOV_17)
+    assert len(failures) == 1 and "cap" in failures[0]
+    assert not s.has("plays_stats", "2025_regular_01")
