@@ -351,6 +351,35 @@ def main():
     tcost = sc.assign(team_id=sc["team"].map(tid26)).groupby(["game_id", "team_id"], as_index=False)["cost"].sum()
     tcost.to_csv(a.out / f"team_costs_week{a.week}_2026.csv", index=False)
 
+    # ---- inputs of the local app's player toggles (scripts/availability_export.py packs them)
+    app = a.out / f"app_week{a.week}_2026"
+    app.mkdir(parents=True, exist_ok=True)
+    wk_teams = set(nxt["team_id"])
+    s_t = schedf[schedf["team_id"].isin(wk_teams)][["season", "game_id", "team_id", "start_time_utc"]]
+    u_t = u[(u["season"] == 2026) & u["team_id"].isin(wk_teams)]
+    u_t[["season", "game_id", "team_id", "athlete_id", "drop", "carry", "tgt", "drop_epa", "carry_epa",
+         "tgt_epa"]].to_parquet(app / "u.parquet", index=False)
+    prev = D.prev_season_stats(u, lab_c)
+    prev[prev["season"] == 2026].to_parquet(app / "prev.parquet", index=False)
+    s_t.to_parquet(app / "sched.parquet", index=False)
+    lab_c[lab_c["season"] == 2026].to_parquet(app / "lab.parquet", index=False)
+    rost[(rost["season"] == 2026) & rost["team_id"].isin(wk_teams)].to_parquet(app / "rost.parquet", index=False)
+    chart[chart["unit"] == "offense"][["team", "unit", "position", "depth", "player", "athlete_id", "role"]].to_parquet(
+        app / "chart.parquet", index=False)
+    wk_games = set(nxt["game_id"])
+    lst = pd.DataFrame([(g_, t_, a_, p_) for (g_, t_, a_), p_ in pf.items() if g_ in wk_games],
+                       columns=["game_id", "team_id", "athlete_id", "p"])
+    lst["status"] = [stat.get((g_, t_, a_)) for g_, t_, a_ in zip(lst["game_id"], lst["team_id"], lst["athlete_id"])]
+    lst["off_chart"] = [(t_, a_) in set(zip(lo["team_id"], lo["athlete_id"])) for t_, a_ in zip(lst["team_id"], lst["athlete_id"])]
+    lst.to_parquet(app / "listings.parquet", index=False)
+    lo[["team_id", "athlete_id", "status"]].to_parquet(app / "off_chart.parquet", index=False)
+    teams[teams["season"] == 2026].to_parquet(app / "teams.parquet", index=False)
+    pd.DataFrame({"athlete_id": list(names), "name": list(names.values())}).dropna().to_parquet(app / "names.parquet", index=False)
+    sc.to_parquet(app / "cloud_scores.parquet", index=False)
+    import json as _json
+    (app / "mu.json").write_text(_json.dumps({g_: list(v) for g_, v in mu[2026].items()}))
+    print(f"app inputs -> {app}")
+
 
 if __name__ == "__main__":
     sys.exit(main())

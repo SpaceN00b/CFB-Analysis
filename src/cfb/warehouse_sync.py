@@ -3,12 +3,21 @@
     python -m cfb.warehouse_sync publish --data-dir data            # cloud: upload changed files
     python -m cfb.warehouse_sync sync --base %LOCALAPPDATA%/cfb/warehouse   # PC: pull changed files
     python -m cfb.warehouse_sync status [--base DIR]
+    python -m cfb.warehouse_sync publish --channel full --data-dir data     # everything, raw/ included
 
-The cloud is the only writer. What is published: every file under tables/, core/, derived/,
-features/, predictions/ and reports/ of the data dir. raw/ (API JSON) and the dated-copy archive stay in
-the cloud.
+Two channels live in one bucket, each with its own manifests and blobs:
 
-Bucket layout (content-addressed, so a reader never sees a half-written publish):
+  slim (the default)   every file under tables/, core/, derived/, features/, predictions/ and
+                       reports/ of the data dir: what the app reads (Data > Sync now).
+  full (prefix full/)  the same plus raw/ (API JSON, including the dated SP+/FPI/SRS/CORE copies
+                       under raw/*_asof and tables/*_asof): a complete data dir, so a PC can start
+                       its own local engine (cfb.engine bootstrap) and keep it backed up.
+
+Writers: the cloud weekly run (slim) and the PC's local engine after each run (slim and full).
+Run one writer at a time; a publish never changes what a reader already downloaded.
+
+Bucket layout of a channel (content-addressed, so a reader never sees a half-written publish);
+the full channel has the same layout under full/:
   blobs/<sha256>             file bytes, one object per distinct content
   manifests/<version>.json   every published manifest still kept
   manifests/index.json       {"versions": [...]} oldest first, at most KEEP_MANIFESTS
@@ -28,7 +37,9 @@ the files under versions/ must be treated as read-only.
 
 Credentials (r2_settings): cfb.settings.secret (environment, then OS keyring) first, then a TOML
 file ($CFB_R2_CONFIG, else <project files>/warehouse/r2.toml) for the non-secret account_id and bucket.
-  R2_ACCOUNT_ID, R2_BUCKET (default cfb-warehouse)
+  R2_ACCOUNT_ID, R2_BUCKET (default: the edition's bucket, cfb-warehouse for main; a non-main
+                           edition reads `bucket_<edition>` from the TOML file, never `bucket`, and
+                           refuses the main bucket, so it can never write main's data)
   CLOUDFLARE_API_TOKEN                     Cloudflare REST API (Bearer). When absent the request
                                            carries no token, for a proxy that injects it.
   R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY  S3 API instead (needs boto3: pip install 'cfb[r2]')
@@ -53,12 +64,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Protocol
 
+from . import edition as _edition
 from . import settings
 
 PUBLISHED_DIRS = ("tables", "core", "derived", "features", "predictions", "reports")
+CHANNELS = {"slim": ("", PUBLISHED_DIRS), "full": ("full/", ("raw", *PUBLISHED_DIRS))}
 SCHEMA = 1
 KEEP_MANIFESTS = 3
-DEFAULT_BUCKET = "cfb-warehouse"
+DEFAULT_BUCKET = _edition.MAIN_BUCKET
 DEFAULT_CONFIG = Path("/mnt/project-files/warehouse/r2.toml")
 MANIFEST = "manifest.json"
 INDEX = "manifests/index.json"
@@ -116,9 +129,16 @@ def r2_settings(config_path: Path | None = None, env: dict | None = None) -> R2S
     if path.exists():
         cfg = tomllib.loads(path.read_text(encoding="utf-8"))
     local = env.get("CFB_WAREHOUSE_LOCAL") or cfg.get("local_bucket")
+    ed = _edition.current()
+    if ed.is_main:
+        bucket = secret("r2_bucket") or cfg.get("bucket") or ed.bucket
+    else:
+        bucket = secret("r2_bucket") or cfg.get(f"bucket_{ed.name}") or ed.bucket
+        if bucket == _edition.MAIN_BUCKET:
+            raise WarehouseError(f"the {ed.name} edition may not use the main bucket {bucket}")
     return R2Settings(
         account_id=secret("r2_account_id") or cfg.get("account_id"),
-        bucket=secret("r2_bucket") or cfg.get("bucket") or DEFAULT_BUCKET,
+        bucket=bucket,
         api_token=secret("cloudflare_api_token"),
         access_key_id=secret("r2_access_key_id"),
         secret_access_key=secret("r2_secret_access_key"),
@@ -268,6 +288,35 @@ class S3Store:
         self.s3.delete_object(Bucket=self.bucket, Key=key)
 
 
+class PrefixedStore:
+    """A channel inside a bucket: every key gets the channel's prefix (full/ for the full channel)."""
+
+    def __init__(self, store: Store, prefix: str):
+        self.inner, self.prefix = store, prefix
+
+    def get(self, key):
+        return self.inner.get(self.prefix + key)
+
+    def put_bytes(self, key, data, content_type="application/json"):
+        self.inner.put_bytes(self.prefix + key, data, content_type)
+
+    def put_file(self, key, path):
+        self.inner.put_file(self.prefix + key, path)
+
+    def download(self, key, dest):
+        self.inner.download(self.prefix + key, dest)
+
+    def delete(self, key):
+        self.inner.delete(self.prefix + key)
+
+
+def channel_store(store: Store, channel: str) -> Store:
+    if channel not in CHANNELS:
+        raise WarehouseError(f"unknown channel {channel!r}; known: {', '.join(CHANNELS)}")
+    prefix = CHANNELS[channel][0]
+    return PrefixedStore(store, prefix) if prefix else store
+
+
 def open_store(settings: R2Settings | None = None) -> Store:
     s = settings or r2_settings()
     if s.local_bucket is not None:
@@ -289,11 +338,11 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def scan(data_dir: Path) -> dict[str, dict]:
+def scan(data_dir: Path, dirs: tuple[str, ...] = PUBLISHED_DIRS) -> dict[str, dict]:
     """relpath -> {size, sha256} for every published file under data_dir."""
     data_dir = Path(data_dir)
     out: dict[str, dict] = {}
-    for top in PUBLISHED_DIRS:
+    for top in dirs:
         root = data_dir / top
         if not root.is_dir():
             continue
@@ -376,14 +425,16 @@ class PublishResult:
 
 def publish(data_dir: str | Path, store: Store, key: str | None = None, *, now: datetime | None = None,
             quota: dict | None = None, commit: str | None = None, force: bool = False, dry_run: bool = False,
-            workers: int = WORKERS, log: Callable[[str], None] = _log) -> PublishResult:
-    """Upload the files that changed since the bucket's current manifest, then the manifest."""
+            workers: int = WORKERS, log: Callable[[str], None] = _log, channel: str = "slim") -> PublishResult:
+    """Upload the files that changed since the channel's current manifest, then the manifest."""
     data_dir = Path(data_dir)
     now = now or datetime.now(timezone.utc)
     key = key or latest_report_key(data_dir)
-    files = scan(data_dir)
+    store = channel_store(store, channel)
+    dirs = CHANNELS[channel][1]
+    files = scan(data_dir, dirs)
     if not files:
-        raise WarehouseError(f"nothing to publish under {data_dir} ({', '.join(PUBLISHED_DIRS)})")
+        raise WarehouseError(f"nothing to publish under {data_dir} ({', '.join(dirs)})")
     prev = _load(store, MANIFEST)
     if prev and not force and prev.get("files") == files and prev.get("key") == key:
         log(f"no changes since {prev['version']}: nothing uploaded")
@@ -481,8 +532,10 @@ class _Lock:
     holder exits or crashes, so a closed app or killed sync never leaves a lock that blocks the
     next one. The file itself stays; only the lock on it matters."""
 
-    def __init__(self, path: Path):
-        self.path, self.fd = path, None
+    BUSY = "another sync is running (another app window or `cfb sync`); wait for it to finish"
+
+    def __init__(self, path: Path, busy: str | None = None):
+        self.path, self.fd, self.busy = path, None, busy or self.BUSY
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -491,8 +544,7 @@ class _Lock:
             _os_lock(fd)
         except OSError as exc:
             os.close(fd)
-            raise SyncBusy("another sync is running (another app window or `cfb sync`); "
-                           "wait for it to finish") from exc
+            raise SyncBusy(self.busy) from exc
         self.fd = fd
         return self
 
@@ -537,13 +589,15 @@ def _matches(path: Path, f: dict) -> bool:
 
 
 def sync(base: str | Path, store: Store, *, keep_versions: int = 2, workers: int = WORKERS,
-         log: Callable[[str], None] = _log) -> SyncResult:
-    """Download the bucket's current version into base/versions/<version>/ and switch CURRENT to it."""
+         log: Callable[[str], None] = _log, channel: str = "slim") -> SyncResult:
+    """Download the channel's current version into base/versions/<version>/ and switch CURRENT to it."""
     base = Path(base)
+    store = channel_store(store, channel)
     with _Lock(base / "sync.lock"):
         remote = _load(store, MANIFEST)
         if not remote:
-            raise WarehouseError("the bucket has no manifest.json: nothing has been published")
+            where = f"the {channel} channel" if channel != "slim" else "the bucket"
+            raise WarehouseError(f"{where} has no manifest.json: nothing has been published")
         if remote.get("schema") != SCHEMA:
             raise WarehouseError(f"manifest schema {remote.get('schema')} is not {SCHEMA}: update the app")
         version = remote["version"]
@@ -634,30 +688,33 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("publish", help="upload changed warehouse files and a new manifest (cloud)")
     p.add_argument("--data-dir", default=None, help="default: cfb.settings.data_dir()")
+    p.add_argument("--channel", choices=sorted(CHANNELS), default="slim", help="slim (default) or full (with raw/)")
     p.add_argument("--key", help="report key <season>_<type>_<week> (default: newest under data/reports)")
     p.add_argument("--force", action="store_true", help="write a new manifest even when nothing changed")
     p.add_argument("--dry-run", action="store_true", help="show what would be uploaded")
     s = sub.add_parser("sync", help="download the current published version (PC)")
     s.add_argument("--base", default=None, help="local warehouse folder (default: cfb.settings.warehouse_dir())")
+    s.add_argument("--channel", choices=sorted(CHANNELS), default="slim")
     st = sub.add_parser("status", help="show the bucket's and the local version")
     st.add_argument("--base", default=None, help="default: cfb.settings.warehouse_dir()")
+    st.add_argument("--channel", choices=sorted(CHANNELS), default="slim")
     args = ap.parse_args(argv)
 
-    settings = r2_settings()
     try:
-        store = open_store(settings)
+        r2 = r2_settings()
+        store = open_store(r2)
         if args.cmd == "publish":
             r = publish(args.data_dir or settings.data_dir(), store, args.key, quota=cfbd_quota(), commit=git_commit(),
-                        force=args.force, dry_run=args.dry_run)
+                        force=args.force, dry_run=args.dry_run, channel=args.channel)
             print(json.dumps({"version": r.version, "changed": r.changed, "uploaded_files": r.uploaded_files,
                               "uploaded_bytes": r.uploaded_bytes, "deleted_blobs": r.deleted_blobs}))
         elif args.cmd == "sync":
-            r = sync(args.base or settings.warehouse_dir(), store)
+            r = sync(args.base or settings.warehouse_dir(), store, channel=args.channel)
             print(json.dumps({"version": r.version, "changed": r.changed, "downloaded_files": r.downloaded_files,
                               "downloaded_bytes": r.downloaded_bytes, "data_dir": str(r.data_dir)}))
         else:
-            remote = _load(store, MANIFEST)
-            out = {"backend": settings.backend, "bucket": settings.bucket,
+            remote = _load(channel_store(store, args.channel), MANIFEST)
+            out = {"backend": r2.backend, "bucket": r2.bucket, "channel": args.channel,
                    "remote_version": remote and remote["version"],
                    "remote_bytes": remote and remote["total_bytes"]}
             out["local_version"] = current_version(args.base or settings.warehouse_dir())

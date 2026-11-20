@@ -35,6 +35,9 @@ python scripts/injury_select.py --build     # player games and roles (PR 34)
 python scripts/depth_impact_select.py       # ~2 min -> data/exploration/depth_impact/
 python scripts/depth_impact_slots.py
 python scripts/depth_impact_week.py --week 12   # -> /mnt/project-files/reports/depth-impact/week12_2026.{md,csv}
+# the local app's Players page (player toggles): check the per-team recompute, pack, upload to R2
+python scripts/depth_impact_week.py --week 12 --out data/exploration/depth_impact_week
+python scripts/availability_export.py --week 12 --publish   # -> extras/availability/2026_regular_12.zip
 ```
 
 Needs `data/tables/depth_charts` (tar in `/mnt/project-files/depth-charts/`), the CFBDepth list,

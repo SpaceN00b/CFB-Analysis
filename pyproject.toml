@@ -31,5 +31,10 @@ cfb-ui = "cfb.ui.launch:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# The dashboard template run_week renders (cfb.report.html); without it a non-editable install
+# (CI, the packaged app) cannot write a report.
+"cfb.report" = ["templates/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
