@@ -163,7 +163,8 @@ def _label_of(crep: dict, athlete: int):
 
 def team_costs(dg: pd.DataFrame, sched: pd.DataFrame, mu: dict, K: dict, p_out: dict | None, realized: bool,
                seasons, regular: set | None = None, record_all: bool = False,
-               chart_repl: dict | None = None, streak: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+               chart_repl: dict | None = None, streak: bool = False,
+               prev: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """One row per (season, game_id, team_id) with >= 2 earlier team games: {dl,lb,db}_cost (fill
     replacement), {..}_cost_own ("own" replacement, or the chart's next man up), {..}_n_out, plus detail
     rows for every regular with P(out) > 0 (all regulars of the last game with record_all).
@@ -175,8 +176,10 @@ def team_costs(dg: pd.DataFrame, sched: pd.DataFrame, mu: dict, K: dict, p_out: 
     about 4% of the games he plays, CFBDepth 2026 snaps; an isolated blank game is read as played).
     chart_repl (charted teams): {team_id: {label: {"role": role, "ids": [athlete ids by depth]}}} for
     the defense; the replacement is the next man up at the starter's label who is not out and not a
-    healthy regular."""
-    prev = prev_season(dg).set_index(["season", "athlete_id"])
+    healthy regular.
+    prev: `prev_season(dg)` computed beforehand (the local app passes the exported table, since its
+    `dg` holds only this season's games of the week's teams)."""
+    prev = (prev_season(dg) if prev is None else prev).set_index(["season", "athlete_id"])
     rows, detail = [], []
     dgs = {k: v for k, v in dg[dg["season"].isin(list(seasons))].groupby(["season", "team_id"])}
     grp_s = {s: g.drop_duplicates("athlete_id").set_index("athlete_id")["grp"] for s, g in dg.groupby("season")}
