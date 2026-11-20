@@ -234,7 +234,8 @@ def main():
     schedf = schedf[(schedf["week"] <= a.week) & (schedf["season_type"] == "regular")].drop(columns="season_type")
     cfd_f = A.cfbdepth_listings(DATA, schedf, teams, IS.CFBDEPTH, checks, IS.DOWNLOAD)
     cfd_f = IS.forward_listings(cfd_f, schedf, teams, schedf.loc[schedf["week"] == a.week, "game_id"])
-    lf = cfd_f.assign(p=cfd_f["status"].map({k: v[0] for k, v in rate26.items()})).dropna(subset=["p"])
+    rate_f = IS.forward_rates(rate26, ro, teams)
+    lf = cfd_f.assign(p=cfd_f["status"].map({k: v[0] for k, v in rate_f.items()})).dropna(subset=["p"])
     pf = lf.set_index(["game_id", "team_id", "athlete_id"])["p"]
     pf = pf[~pf.index.duplicated()].to_dict()
     nxt = schedf[schedf["week"] == a.week][["game_id", "team_id"]]

@@ -290,7 +290,8 @@ def package(wk: dict, pull: Path, list_csv: Path, list_day: str, publish: bool) 
     pulled = pd.Timestamp(env["CFB_HDI_PULLED_UTC"])
     args = [py, str(SCRIPTS / "availability_export.py"), "--week", N,
             "--listings", f"CFBDepth list {list_day} + conference reports (HDI) pulled {et(pulled)}"]
-    out = sh(args + (["--publish"] if publish else []), env)
+    args += ["--publish"] if publish else ["--out", str(EXP / "availability")]  # unpublished: keep the shared copy
+    out = sh(args, env)
     line = next((x for x in out.splitlines() if x.startswith("published")), None)
     return (f"Availability package {wk['season']}_regular_{N}: " + (line or ("not published (a newer pull exists)"
             if newer else "written, not published")) + ".")
