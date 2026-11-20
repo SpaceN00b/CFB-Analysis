@@ -643,9 +643,9 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--base", default=None, help="default: cfb.settings.warehouse_dir()")
     args = ap.parse_args(argv)
 
-    settings = r2_settings()
+    cfg = r2_settings()  # not `settings`: that name is the cfb.settings module
     try:
-        store = open_store(settings)
+        store = open_store(cfg)
         if args.cmd == "publish":
             r = publish(args.data_dir or settings.data_dir(), store, args.key, quota=cfbd_quota(), commit=git_commit(),
                         force=args.force, dry_run=args.dry_run)
@@ -657,7 +657,7 @@ def main(argv: list[str] | None = None) -> int:
                               "downloaded_bytes": r.downloaded_bytes, "data_dir": str(r.data_dir)}))
         else:
             remote = _load(store, MANIFEST)
-            out = {"backend": settings.backend, "bucket": settings.bucket,
+            out = {"backend": cfg.backend, "bucket": cfg.bucket,
                    "remote_version": remote and remote["version"],
                    "remote_bytes": remote and remote["total_bytes"]}
             out["local_version"] = current_version(args.base or settings.warehouse_dir())
