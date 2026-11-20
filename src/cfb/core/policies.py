@@ -158,6 +158,10 @@ POLICIES: dict[str, TablePolicy] = {
                                         keys=PLAYER_KEYS),
     "passing_players_games": TablePolicy(GAME, game_col="gameId", season_col="season",
                                          keys=PLAYER_KEYS, note="FBS passers; data from 2025 only"),
+    "plays_stats": TablePolicy(GAME, game_col="gameId", season_col="season",
+                               keys=("playId", "athleteId", "statType"),
+                               note="player x play attribution; intended receiver on incompletions "
+                                    "('Target') is missing for part of the games"),
     "ppa_players_games": TablePolicy(WEEKLY, season_col="season", season_type_col="season_type",
                                      weekly={"regular": "post", "postseason": "post"}, keys=PLAYER_KEYS,
                                      note="no gameId in the API: rows are visible when their calendar "
@@ -213,6 +217,10 @@ POLICIES: dict[str, TablePolicy] = {
                                 note="imported team depth chart CSVs (python -m cfb.depth_charts); "
                                      "asof_utc = when the charts were downloaded, not when the team "
                                      "published them"),
+    "availability_reports": TablePolicy(DATED, date_col="posted_utc", season_col="season",
+                                        note="conference availability reports (HDI) as pulled by "
+                                             "scripts/injury_pull.py, one partition per pull; "
+                                             "posted_utc = when the conference posted that report"),
     # ---- raw: weekly ---------------------------------------------------------------
     "ratings_elo_weekly": TablePolicy(WEEKLY, season_col="season", season_type_col="season_type",
                                       weekly={"regular": "post", "postseason": "post"},

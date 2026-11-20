@@ -229,11 +229,13 @@ def main():
     print("\n" + sl.to_string(index=False))
 
     # ---- this week's defensive impact scores: regulars vs the next man up on this week's chart
-    upto = pd.Timestamp("2026-11-25", tz="UTC")
-    schedf = A.team_schedule(DATA, [2026], upcoming_until=upto).merge(gi[["game_id", "week"]], on="game_id")
-    schedf = schedf[schedf["week"] <= a.week]
+    upto = pd.Timestamp("2027-02-01", tz="UTC")  # every scheduled 2026 game; the week filter picks
+    schedf = A.team_schedule(DATA, [2026], upcoming_until=upto).merge(gi[["game_id", "week", "season_type"]], on="game_id")
+    schedf = schedf[(schedf["week"] <= a.week) & (schedf["season_type"] == "regular")].drop(columns="season_type")
     cfd_f = A.cfbdepth_listings(DATA, schedf, teams, IS.CFBDEPTH, checks, IS.DOWNLOAD)
-    lf = cfd_f.assign(p=cfd_f["status"].map({k: v[0] for k, v in rate26.items()})).dropna(subset=["p"])
+    cfd_f = IS.forward_listings(cfd_f, schedf, teams, schedf.loc[schedf["week"] == a.week, "game_id"])
+    rate_f = IS.forward_rates(rate26, ro, teams)
+    lf = cfd_f.assign(p=cfd_f["status"].map({k: v[0] for k, v in rate_f.items()})).dropna(subset=["p"])
     pf = lf.set_index(["game_id", "team_id", "athlete_id"])["p"]
     pf = pf[~pf.index.duplicated()].to_dict()
     nxt = schedf[schedf["week"] == a.week][["game_id", "team_id"]]

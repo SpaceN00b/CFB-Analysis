@@ -56,6 +56,9 @@ from typing import Callable, Protocol
 from . import settings
 
 PUBLISHED_DIRS = ("tables", "core", "derived", "features", "predictions", "reports")
+# Written by their own jobs with publish(only=...) (scripts/injury_pull.py); a full publish from a
+# data dir that lacks them keeps the bucket's copies.
+KEEP_REMOTE = ("tables/availability_reports/",)
 SCHEMA = 1
 KEEP_MANIFESTS = 3
 DEFAULT_BUCKET = "cfb-warehouse"
@@ -289,11 +292,11 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def scan(data_dir: Path) -> dict[str, dict]:
-    """relpath -> {size, sha256} for every published file under data_dir."""
+def scan(data_dir: Path, prefixes: tuple[str, ...] | None = None) -> dict[str, dict]:
+    """relpath -> {size, sha256} for every published file under data_dir (or under `prefixes`)."""
     data_dir = Path(data_dir)
     out: dict[str, dict] = {}
-    for top in PUBLISHED_DIRS:
+    for top in (prefixes or PUBLISHED_DIRS):
         root = data_dir / top
         if not root.is_dir():
             continue
@@ -376,15 +379,32 @@ class PublishResult:
 
 def publish(data_dir: str | Path, store: Store, key: str | None = None, *, now: datetime | None = None,
             quota: dict | None = None, commit: str | None = None, force: bool = False, dry_run: bool = False,
-            workers: int = WORKERS, log: Callable[[str], None] = _log) -> PublishResult:
-    """Upload the files that changed since the bucket's current manifest, then the manifest."""
+            workers: int = WORKERS, log: Callable[[str], None] = _log,
+            only: tuple[str, ...] | None = None) -> PublishResult:
+    """Upload the files that changed since the bucket's current manifest, then the manifest.
+
+    only: relpath prefixes (e.g. ("tables/availability_reports/",)). The new manifest is the
+    bucket's current one with the files under those prefixes replaced by data_dir's, so a job that
+    holds only its own table can publish it without the rest of the warehouse."""
     data_dir = Path(data_dir)
     now = now or datetime.now(timezone.utc)
-    key = key or latest_report_key(data_dir)
-    files = scan(data_dir)
+    prev = _load(store, MANIFEST)
+    if only:
+        pre = tuple(x.rstrip("/") + "/" for x in only)
+        if not prev:
+            raise WarehouseError("a partial publish (only=) needs a current manifest in the bucket")
+        mine = scan(data_dir, tuple(x.rstrip("/") for x in pre))
+        files = {**{k: v for k, v in prev["files"].items() if not k.startswith(pre)}, **mine}
+        key = key or prev.get("key")
+    else:
+        key = key or latest_report_key(data_dir)
+        files = scan(data_dir)
+        if prev:  # tables other jobs publish, absent from this data dir
+            for pre in KEEP_REMOTE:
+                if not any(k.startswith(pre) for k in files):
+                    files.update({k: v for k, v in prev["files"].items() if k.startswith(pre)})
     if not files:
         raise WarehouseError(f"nothing to publish under {data_dir} ({', '.join(PUBLISHED_DIRS)})")
-    prev = _load(store, MANIFEST)
     if prev and not force and prev.get("files") == files and prev.get("key") == key:
         log(f"no changes since {prev['version']}: nothing uploaded")
         return PublishResult(prev["version"], False, manifest=prev)

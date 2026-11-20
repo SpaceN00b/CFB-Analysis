@@ -25,7 +25,11 @@ earlier weeks for the CFBDepth Impact column.
 from __future__ import annotations
 
 import argparse
+import os
 import glob
+import re
+import json
+import gzip
 import sys
 from pathlib import Path
 
@@ -38,10 +42,14 @@ from cfb.model.models import log_loss, sigmoid
 
 DATA = Path("data")
 EXP = DATA / "exploration"
-CFBDEPTH = Path("/mnt/project-files/injury-reports/cfbdepth_2026-11-18/cfbdepth-player-updates.csv")
-HDI = Path("/mnt/project-files/injury-reports/hdi_raw_2026-11-18")
+# the scheduled injury pulls (scripts/injury_pull.py) point these at the newest pull and list
+# the scheduled injury pulls (scripts/injury_pull.py) point these at the newest pull and list
+CFBDEPTH_1118 = Path("/mnt/project-files/injury-reports/cfbdepth_2026-11-18/cfbdepth-player-updates.csv")
+CFBDEPTH = Path(os.environ.get("CFB_CFBDEPTH_LIST", str(CFBDEPTH_1118)))
+HDI = Path(os.environ.get("CFB_HDI_DIR", "/mnt/project-files/injury-reports/hdi_raw_2026-11-18"))
+HDI_PULLED = os.environ.get("CFB_HDI_PULLED_UTC")  # UTC time of the HDI pull in HDI (forward use)
 CHECKS = Path("/mnt/project-files/injury-reports/checks_2026-11-19")
-DOWNLOAD = pd.Timestamp("2026-11-18")
+DOWNLOAD = pd.Timestamp(os.environ.get("CFB_CFBDEPTH_DOWNLOAD", "2026-11-18"))
 P4 = {"ACC", "Big Ten", "Big 12", "SEC"}
 # PR 26 per-100%-share points (2018-2025 oracle regression, target share for WR/TE)
 FIXED = {"rb_out": -1.94, "wr_out": -3.24, "te_out": -3.77}
@@ -64,7 +72,71 @@ def build():
     print("player games", len(u), "role rows", len(ro))
 
 
+def forward_listings(cfd: pd.DataFrame, sched: pd.DataFrame, teams: pd.DataFrame, week_games) -> pd.DataFrame:
+    """The coming week's listings: the CFBDepth list, and, when a scheduled HDI pull is set
+    (CFB_HDI_PULLED_UTC), that pull's conference reports for the week's games. The pull wins where
+    both list a player if it is from the list's download date or later (its reports are newer;
+    'Available' there clears a listing); otherwise the list wins. HDI fills the list's gaps."""
+    if not HDI_PULLED:
+        return cfd
+    h = A.hdi_listings(DATA, sched, teams, HDI)
+    h = h[(h["source"] == "hdi2026") & h["game_id"].isin(set(week_games))].assign(source="hdi_pull")
+    if h.empty:
+        return cfd
+    pulled = pd.Timestamp(HDI_PULLED).tz_convert("America/New_York").tz_localize(None).normalize()
+    parts = [h, cfd] if pulled >= DOWNLOAD else [cfd, h]
+    out = pd.concat(parts, ignore_index=True).drop_duplicates(["game_id", "team_id", "athlete_id"])
+    print(f"forward listings: CFBDepth {len(cfd)}, HDI pull {len(h)} (pulled {HDI_PULLED}, "
+          f"{'wins' if pulled >= DOWNLOAD else 'fills gaps'}), combined {len(out)}")
+    return out
+
+
+def forward_rates(rate: dict, ro: pd.DataFrame, teams: pd.DataFrame) -> dict:
+    """With a scheduled HDI pull, the week's statuses are pre-game-day ones (Doubtful, Probable, Out -
+    1st half), which the game-day rate table lacks: fill those from P(absent | last pre-game-day status)
+    in the 2025 conference reports (Friday, else Thursday, else Initial). 2025, role players
+    (QB/RB/WR/TE): Doubtful 1.00 (n 15), Probable 0.25 (118), Questionable 0.70 (107), Out 0.997 (345).
+    Statuses already in `rate` keep their game-day value."""
+    if not HDI_PULLED:
+        return rate
+    rows = []
+    for f in glob.glob(str(HDI / "leg_*.json.gz")):
+        rows += json.load(gzip.open(f)).get("data", [])
+    if not rows:
+        return rate
+    h = pd.DataFrame(rows)
+
+    def pre(r):
+        for c in ("Friday", "Thursday", "Initial"):
+            v = r.get(c)
+            if isinstance(v, str) and v.strip() not in ("", "-"):
+                return v.strip()
+        return None
+    h["status"] = h.apply(pre, axis=1)
+    h["team"] = h["Team"].map(lambda t: A.HDI_TEAM_FIX.get(t, re.sub(r" St\.$", " State", str(t))))
+    r, tid = A._roster_keys(DATA, 2025, teams)
+    h["team_id"] = h["team"].map(tid)
+    h = h[h["team_id"].notna()]
+    h["athlete_id"] = A._match(h.rename(columns={"Player": "name"}), r, jersey_col="Number")
+    h = h[h["athlete_id"].notna()]
+    si = A._sched_index(A.team_schedule(DATA, [2025]))
+    h["day"] = pd.to_datetime(h["Week"], format="%a, %d %b %Y %H:%M:%S GMT", errors="coerce")
+    h["game_id"] = [A._game_on(si, t, d) for t, d in zip(h["team_id"], h["day"])]
+    h = h[h["game_id"].notna()]
+    for c in ("game_id", "team_id", "athlete_id"):
+        h[c] = h[c].astype("int64")
+    pre_r = A.status_rates(ro, h)
+    out = dict(rate)
+    for k, v in pre_r.items():
+        out.setdefault(k, v)
+    print("forward status rates (pregame fill): " + ", ".join(f"{k} {v[0]:.2f}" for k, v in out.items()))
+    return out
+
+
 def load_checks(d: Path) -> pd.DataFrame:
+    if CFBDEPTH != CFBDEPTH_1118:  # the checks are keyed by row of the 2026-11-18 list
+        print(f"per-player checks skipped: they belong to {CFBDEPTH_1118}, not {CFBDEPTH}")
+        return pd.DataFrame()
     files = sorted(glob.glob(str(d / "out_batch_*.csv")))
     if not files:
         return pd.DataFrame()

@@ -219,3 +219,28 @@ def test_run_week_publishes_warehouse_with_publish(synthetic, tmp_path, monkeypa
     assert m["key"] == res.slate.key and any(k.startswith("reports/") for k in m["files"])
     res2 = run(root, cfg, season=live, week=4, do_refresh=False, publish_warehouse_to_r2=None)
     assert res2.warehouse is None  # no --publish: no warehouse step
+
+
+def test_partial_publish_replaces_only_its_prefix(data, bucket, tmp_path):
+    full = ws.publish(data, bucket, now=T0, log=quiet)
+    job = tmp_path / "job"  # a data dir holding only the job's own table
+    (job / "tables/availability_reports").mkdir(parents=True)
+    (job / "tables/availability_reports/20261120T033000Z.parquet").write_bytes(b"pull1")
+    r = ws.publish(job, bucket, now=T0 + timedelta(days=2), only=("tables/availability_reports",), log=quiet)
+    m = json.loads(bucket.get("manifest.json"))
+    assert r.changed and r.uploaded_files == 1 and m["key"] == full.manifest["key"]
+    assert set(m["files"]) == set(full.manifest["files"]) | {"tables/availability_reports/20261120T033000Z.parquet"}
+
+    # a later full publish from a data dir without the table keeps the bucket's copy
+    (data / "tables/games/2026.parquet").write_bytes(b"g2026-v3")
+    ws.publish(data, bucket, now=T0 + timedelta(days=7), log=quiet)
+    m = json.loads(bucket.get("manifest.json"))
+    assert "tables/availability_reports/20261120T033000Z.parquet" in m["files"]
+    assert m["files"]["tables/games/2026.parquet"]["size"] == len(b"g2026-v3")
+
+
+def test_partial_publish_needs_a_manifest(bucket, tmp_path):
+    (tmp_path / "job/tables/availability_reports").mkdir(parents=True)
+    (tmp_path / "job/tables/availability_reports/x.parquet").write_bytes(b"x")
+    with pytest.raises(ws.WarehouseError):
+        ws.publish(tmp_path / "job", bucket, only=("tables/availability_reports",), log=quiet)
