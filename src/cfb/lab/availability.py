@@ -288,17 +288,17 @@ def hdi_listings(data: Path, sched: pd.DataFrame, teams: pd.DataFrame, hdi_dir: 
             if c not in h:
                 h[c] = None
 
-        def last(r):
+        def last(r):  # '-' = that report not filled in (yet)
             for c in cols:
                 v = r.get(c)
-                if isinstance(v, str) and v.strip():
+                if isinstance(v, str) and v.strip() not in ("", "-"):
                     return v.strip()
             return None
 
         def first(r):
             for c in reversed(cols):
                 v = r.get(c)
-                if isinstance(v, str) and v.strip():
+                if isinstance(v, str) and v.strip() not in ("", "-"):
                     return v.strip()
             return None
         h["status"] = h.apply(last, axis=1)

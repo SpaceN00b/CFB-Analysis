@@ -254,11 +254,12 @@ def main():
                 print(f"in-sample slope {lab_t} | {v}: {b:+.2f} (1.0 = costs taken at face value)")
 
     # ---- forward: impact scores and the adjusted chart for the coming week (68 charted teams)
-    upto = pd.Timestamp("2026-11-25", tz="UTC")
+    upto = pd.Timestamp("2027-02-01", tz="UTC")  # every scheduled 2026 game; the week filter picks
     schedf = A.team_schedule(DATA, [2026], upcoming_until=upto)
     schedf = schedf.merge(gi[["game_id", "season_type", "week"]], on="game_id")
-    schedf = schedf[(schedf["week"] <= a.week)]
+    schedf = schedf[(schedf["week"] <= a.week) & (schedf["season_type"] == "regular")]
     cfd_f = A.cfbdepth_listings(DATA, schedf, teams, IS.CFBDEPTH, checks, IS.DOWNLOAD)
+    cfd_f = IS.forward_listings(cfd_f, schedf, teams, schedf.loc[schedf["week"] == a.week, "game_id"])
     lf = cfd_f.assign(p=cfd_f["status"].map({k: v[0] for k, v in rate26.items()})).dropna(subset=["p"])
     pf = lf.set_index(["game_id", "team_id", "athlete_id"])["p"]
     pf = pf[~pf.index.duplicated()].to_dict()

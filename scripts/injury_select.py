@@ -25,6 +25,7 @@ earlier weeks for the CFBDepth Impact column.
 from __future__ import annotations
 
 import argparse
+import os
 import glob
 import sys
 from pathlib import Path
@@ -38,10 +39,14 @@ from cfb.model.models import log_loss, sigmoid
 
 DATA = Path("data")
 EXP = DATA / "exploration"
-CFBDEPTH = Path("/mnt/project-files/injury-reports/cfbdepth_2026-11-18/cfbdepth-player-updates.csv")
-HDI = Path("/mnt/project-files/injury-reports/hdi_raw_2026-11-18")
+# the scheduled injury pulls (scripts/injury_pull.py) point these at the newest pull and list
+# the scheduled injury pulls (scripts/injury_pull.py) point these at the newest pull and list
+CFBDEPTH_1118 = Path("/mnt/project-files/injury-reports/cfbdepth_2026-11-18/cfbdepth-player-updates.csv")
+CFBDEPTH = Path(os.environ.get("CFB_CFBDEPTH_LIST", str(CFBDEPTH_1118)))
+HDI = Path(os.environ.get("CFB_HDI_DIR", "/mnt/project-files/injury-reports/hdi_raw_2026-11-18"))
+HDI_PULLED = os.environ.get("CFB_HDI_PULLED_UTC")  # UTC time of the HDI pull in HDI (forward use)
 CHECKS = Path("/mnt/project-files/injury-reports/checks_2026-11-19")
-DOWNLOAD = pd.Timestamp("2026-11-18")
+DOWNLOAD = pd.Timestamp(os.environ.get("CFB_CFBDEPTH_DOWNLOAD", "2026-11-18"))
 P4 = {"ACC", "Big Ten", "Big 12", "SEC"}
 # PR 26 per-100%-share points (2018-2025 oracle regression, target share for WR/TE)
 FIXED = {"rb_out": -1.94, "wr_out": -3.24, "te_out": -3.77}
@@ -64,7 +69,29 @@ def build():
     print("player games", len(u), "role rows", len(ro))
 
 
+def forward_listings(cfd: pd.DataFrame, sched: pd.DataFrame, teams: pd.DataFrame, week_games) -> pd.DataFrame:
+    """The coming week's listings: the CFBDepth list, and, when a scheduled HDI pull is set
+    (CFB_HDI_PULLED_UTC), that pull's conference reports for the week's games. The pull wins where
+    both list a player if it is from the list's download date or later (its reports are newer;
+    'Available' there clears a listing); otherwise the list wins. HDI fills the list's gaps."""
+    if not HDI_PULLED:
+        return cfd
+    h = A.hdi_listings(DATA, sched, teams, HDI)
+    h = h[(h["source"] == "hdi2026") & h["game_id"].isin(set(week_games))].assign(source="hdi_pull")
+    if h.empty:
+        return cfd
+    pulled = pd.Timestamp(HDI_PULLED).tz_convert("America/New_York").tz_localize(None).normalize()
+    parts = [h, cfd] if pulled >= DOWNLOAD else [cfd, h]
+    out = pd.concat(parts, ignore_index=True).drop_duplicates(["game_id", "team_id", "athlete_id"])
+    print(f"forward listings: CFBDepth {len(cfd)}, HDI pull {len(h)} (pulled {HDI_PULLED}, "
+          f"{'wins' if pulled >= DOWNLOAD else 'fills gaps'}), combined {len(out)}")
+    return out
+
+
 def load_checks(d: Path) -> pd.DataFrame:
+    if CFBDEPTH != CFBDEPTH_1118:  # the checks are keyed by row of the 2026-11-18 list
+        print(f"per-player checks skipped: they belong to {CFBDEPTH_1118}, not {CFBDEPTH}")
+        return pd.DataFrame()
     files = sorted(glob.glob(str(d / "out_batch_*.csv")))
     if not files:
         return pd.DataFrame()
