@@ -243,8 +243,7 @@ def main():
         return 0
     wkc = pd.read_csv(wk_file)
     repl_wk = F.chart_defense(wkc, teams)
-    tw, dw = F.team_costs(dg, schedf, mu_d, K, pf, False, [2026], record_all=True, chart_repl=repl_wk)
-    tw_u, _ = F.team_costs(dg, schedf, mu_d, K, pf, False, [2026])
+    _, dw = F.team_costs(dg, schedf, mu_d, K, pf, False, [2026], record_all=True, chart_repl=repl_wk)
     ros26 = pd.read_parquet(DATA / "tables" / "roster" / "2026.parquet", columns=["id", "firstName", "lastName"])
     ros26["athlete_id"] = pd.to_numeric(ros26["id"], errors="coerce")
     names = dict(zip(ros26["athlete_id"], (ros26["firstName"].fillna("") + " " + ros26["lastName"].fillna("")).str.strip()))
@@ -268,6 +267,21 @@ def main():
     print(sc[sc["p_out"] > 0].sort_values("cost_fill", ascending=False)[show].head(25).to_string(index=False))
     tc = sc.groupby(["game_id", "team_id", "team"], as_index=False)[["cost_fill", "cost_chart"]].sum()
     tc.to_csv(a.out / f"def_team_costs_week{a.week}_2026.csv", index=False)
+
+    # ---- inputs of the local app's player toggles (scripts/availability_export.py packs them)
+    app = a.out / f"app_week{a.week}_2026"
+    app.mkdir(parents=True, exist_ok=True)
+    wk_teams = set(nxt["team_id"])
+    dg[(dg["season"] == 2026) & dg["team_id"].isin(wk_teams)][
+        ["season", "game_id", "team_id", "athlete_id", "grp", "inv", "dv"]].to_parquet(app / "dg.parquet", index=False)
+    pv = F.prev_season(dg)
+    pv[pv["season"] == 2026].to_parquet(app / "dprev.parquet", index=False)
+    chart[chart["unit"] == "defense"][["team", "unit", "position", "depth", "player", "athlete_id", "role"]].to_parquet(
+        app / "def_chart.parquet", index=False)
+    sc.to_parquet(app / "def_scores.parquet", index=False)
+    import json as _json
+    (app / "def.json").write_text(_json.dumps({"mu": mu_d, "K": K, "ev": ev}))
+    print(f"app defense inputs -> {app}")
     return 0
 
 

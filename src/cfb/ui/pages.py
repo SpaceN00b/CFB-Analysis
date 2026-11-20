@@ -406,14 +406,22 @@ def page_players():
             st.rerun()
 
 
+def _defense_on(m) -> bool:
+    return bool(m.has_def and st.session_state.get("av_defense", True))
+
+
 def _availability_picks(m, ov) -> None:
-    g = m.picks(ov)
     st.caption("Test model: model_v2 plus the depth-chart injury term. A starter who is out costs his value over the "
                "next man up on this week's chart, times P(out). \"Listed\" uses the injury list as is; "
                "\"Yours\" applies your settings from Mark players.")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     p4 = c1.toggle("P4 + Notre Dame games only", value=True)
     mine = c2.toggle("Only games with your changes", value=False)
+    if m.has_def:
+        c3.toggle("Include defense (DL, LB, DB)", value=True, key="av_defense",
+                  help="Defensive starters out cost their sacks / TFL / INT / pass breakup / hurry value over the next "
+                       "man up. Tested at no measurable gain on 2025 and 2026, so the effect is small.")
+    g = m.picks(ov, defense=_defense_on(m))
     view = g
     if p4 and "p4" in view:
         view = view[view["p4"].astype(bool)]
@@ -443,9 +451,14 @@ def _mark_players(m, store, key: str, ov: dict) -> None:
     mine = ov.get(tid, {})
     df = m.players(tid, mine)
     if df.empty:
-        return st.info("No QB, RB, WR or TE data for this team.")
-    st.caption("Set a player to Available or Out to override the injury list; Listing follows the list. Only QB, RB, "
-               "WR and TE starters change the pick (the model found no measurable effect for OL or defense).")
+        return st.info("No player data for this team.")
+    if m.has_def:
+        st.caption("Set a player to Available or Out to override the injury list; Listing follows the list. QB, RB, WR "
+                   "and TE starters and DL / LB / DB regulars change the pick (defense only with \"Include defense\" on "
+                   "the Picks tab; its tested effect is small). Offensive line is not modelled.")
+    else:
+        st.caption("Set a player to Available or Out to override the injury list; Listing follows the list. Only QB, RB, "
+                   "WR and TE starters change the pick (the model found no measurable effect for OL or defense).")
     ed_key = f"av_ed_{key}_{tid}"
     num = st.column_config.NumberColumn
     cols = ["athlete_id", "player", "grp", "setting", "listing", "p_listed", "starter", "cost_now", "value_pts",
@@ -453,7 +466,8 @@ def _mark_players(m, store, key: str, ov: dict) -> None:
     edited = st.data_editor(df[cols], hide_index=True, width="stretch", key=ed_key,
                             disabled=[c for c in cols if c != "setting"], column_config={
         "athlete_id": None, "player": "Player", "grp": "Pos", "chart": "Chart spot", "games": "Games",
-        "touches": st.column_config.NumberColumn("Touches", help="Dropbacks (QB), carries (RB), targets (WR/TE)"),
+        "touches": st.column_config.NumberColumn("Touches", help="Dropbacks (QB), carries (RB), targets (WR/TE); "
+                                                  "defense: tackles + passes defended + hurries + INT"),
         "listing": "Injury list", "p_listed": num("P(out) listed", format="%.2f"),
         "setting": st.column_config.SelectboxColumn("Your setting", options=list(SETTING_TO_STATE), required=True),
         "starter": "Starter", "value_pts": num("Value over next (pts)", format="%.1f"),
@@ -467,12 +481,17 @@ def _mark_players(m, store, key: str, ov: dict) -> None:
         st.session_state.pop(ed_key, None)
         st.rerun()
     res, base = m.team(tid, mine), m.team(tid, {})
-    g = m.picks(ov)  # both teams' settings
+    dfn = _defense_on(m)
+    g = m.picks(ov, defense=dfn)  # both teams' settings
     row = g[(g["home_id"] == tid) | (g["away_id"] == tid)]
     if len(row):
         r = row.iloc[0]
-        st.write(f"**{dict(teams).get(tid)}** injury cost this game: **{res.cost:.1f} pts** "
-                 f"(injury list as is: {base.cost:.1f}). Game: {r['away_team']} @ {r['home_team']}. "
+        c_now = res.cost_off + (res.cost_def if dfn else 0.0)
+        c_base = base.cost_off + (base.cost_def if dfn else 0.0)
+        split = (f" (offense {res.cost_off:.1f}, defense {res.cost_def:.1f}"
+                 f"{'' if dfn else ', defense not counted'})") if m.has_def else ""
+        st.write(f"**{dict(teams).get(tid)}** injury cost this game: **{c_now:.1f} pts**{split} "
+                 f"(injury list as is: {c_base:.1f}). Game: {r['away_team']} @ {r['home_team']}. "
                  f"Your pick **{r['pick']}** {r['p_pick']:.1%}. Chance {r['home_team']} wins: yours {r['p_mine']:.1%}, "
                  f"injury list as is {r['p_dc']:.1%}, model_v2 without injuries {r['p_v2']:.1%}.")
     if mine and st.button("Reset this team to the injury list"):

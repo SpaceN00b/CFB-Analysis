@@ -49,6 +49,11 @@ installer over the old one; data and keys are kept.
   code as the cloud run, so with no changes it shows the cloud's numbers. Settings are saved per week in
   `overrides.json`. The week's inputs come from the bucket (`extras/availability/`), downloaded with
   each sync; the cloud builds them with `scripts/availability_export.py --publish` (docs/depth-impact.md).
+  Defense (PR 37, packages from week 12 on): DL / LB / DB regulars can be marked too; an out regular
+  costs his disruption value (sacks, TFL, INT, pass breakups, hurries) over the next man up on this
+  week's defensive chart (docs/defense-impact.md). "Include defense" on the Picks tab turns the
+  defensive term off; it tested at no measurable gain. Run `scripts/defense_impact_select.py --week N`
+  before the export to include it.
 - **Settings**: Cloudflare connection (save once, test, forget), sync at launch, paths, other keys.
 
 ## From a source checkout
