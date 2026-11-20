@@ -173,6 +173,19 @@ def test_update_check(monkeypatch):
     assert update.update_available(session=FakeSession(FakeResp(200, doc))) is None
 
 
+def test_update_check_experimental_sees_only_its_own(monkeypatch):
+    from cfb.ui import update
+
+    monkeypatch.setenv("CFB_EDITION", "experimental")
+    docs = [{"tag_name": "build-30", "assets": []},
+            {"tag_name": "exp-build-21", "prerelease": True, "html_url": "u21", "assets": []},
+            {"tag_name": "exp-build-25", "prerelease": True, "html_url": "u25", "draft": True, "assets": []},
+            {"tag_name": "exp-build-19", "prerelease": True, "html_url": "u19", "assets": []}]
+    rel = update.latest_release(session=FakeSession(FakeResp(200, docs)))
+    assert rel["tag"] == "exp-build-21" and rel["build"] == 21
+    assert update.latest_release(session=FakeSession(FakeResp(200, docs[:1]))) is None
+
+
 def test_sync_job_runs_in_background_and_reports():
     import threading
     from cfb.ui.sync_job import SyncJob

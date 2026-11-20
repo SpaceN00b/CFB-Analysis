@@ -17,6 +17,7 @@ spread and total for every game, scored against the closing lines.
 | Spread and total (phase 2) | done | `cfb.model.points_config`, `cfb.eval.points`, [docs/points.md](docs/points.md) |
 | Weekly report, dashboard | done | `cfb.report`, `cfb.run_week`, `dashboard/`, [docs/report.md](docs/report.md) |
 | Depth chart import (dated snapshots, all 68 P4 + Notre Dame on 2026-11-19) | done | `cfb.depth_charts`, [docs/depth-charts.md](docs/depth-charts.md) |
+| Local engine on the PC: CFBD pulls, build, weekly run, R2 backup, Task Scheduler; main and experimental editions | done | `cfb.engine`, `cfb.schedule`, `cfb.edition`, [docs/local-app.md](docs/local-app.md) |
 
 Baselines to beat, season-forward on 2018 to 2025 (6,024 FBS vs FBS games): closing spread
 log loss 0.520, CFBD pregame Elo plus home field 0.549, home team always 0.679.
@@ -45,7 +46,8 @@ under `/mnt/project-files/cfbd-data` when that folder exists. The packaged Windo
 (`CFBD_API_KEY`, `R2_*`) are read from the environment first, then from the OS keyring
 (Windows Credential Manager) with `pip install -e '.[keyring]'`.
 
-Local Windows app (Streamlit UI, packaged installer, R2 sync): `docs/local-app.md`.
+Local Windows app (Streamlit UI, packaged installer, R2 sync, and the local engine that runs the
+whole weekly pipeline on the PC on a Task Scheduler schedule): `docs/local-app.md`.
 
 Other commands:
 
@@ -63,6 +65,9 @@ python -m cfb.depth_charts import PATH --asof <download time>   # team depth cha
 ```
 src/cfb/
   client.py, store.py, ingest.py   CFBD client, local store, pull            (ingest: W2)
+  engine.py, schedule.py           local engine on the PC (bootstrap, all, light, check, backup); Task Scheduler
+  edition.py                       main / experimental edition: names, folders, keys, bucket
+  warehouse_sync.py                R2 publish and sync (slim and full channels)
   depth_charts.py                  import team depth chart CSVs (dated)
   core/                            foundations                               (W1)
     game_index.py                  game_index, weeks, teams, game_pregame

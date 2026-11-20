@@ -7,7 +7,11 @@ One codebase runs in two places:
   exists. These are the values the code used before this module existed.
 - Packaged app (`sys.frozen`, the Windows .exe): data under the user's local app-data folder
   (`%LOCALAPPDATA%\\cfb\\data` on Windows), a user config under `%APPDATA%\\cfb\\config.toml`,
-  and the run config bundled with the app as the fallback.
+  the dated-copy archive under `%LOCALAPPDATA%\\cfb\\asof`, and the run config bundled with the
+  app as the fallback.
+
+The folder name (`cfb`) and the keyring service come from the edition (cfb.edition): the
+experimental edition uses `cfb-exp` for both, so the two editions never share files or keys.
 
 Every value can be overridden with an environment variable:
 
@@ -20,7 +24,8 @@ Every value can be overridden with an environment variable:
 
 Secrets (`secret()`): an environment variable first, then the OS keyring (Windows Credential
 Manager) when the optional `keyring` package is installed, else None. In the cloud the CFBD key
-is injected by a proxy, so None is the normal answer there.
+is injected by a proxy, so None is the normal answer there. A non-main edition without its own
+CFBD key reads main's (the CFBD key only reads public data); R2 keys are never shared.
 """
 from __future__ import annotations
 
@@ -28,8 +33,13 @@ import os
 import sys
 from pathlib import Path
 
-APP = "cfb"
-KEYRING_SERVICE = "cfb"
+from . import edition as _edition
+
+EDITION = _edition.current()
+APP = EDITION.folder
+KEYRING_SERVICE = EDITION.keyring_service
+# Secrets a non-main edition may read from main's keyring when it has none of its own.
+SHARED_SECRETS = ("cfbd_api_key",)
 DEFAULT_PROJECT_FILES = Path("/mnt/project-files")
 REPO_CONFIG = Path("dashboard") / "config.toml"
 
@@ -124,13 +134,16 @@ def snapshot_dir() -> Path | None:
 
 
 def asof_archive() -> Path | None:
-    """Dated rating copies folder, or None when there is none (local app without one)."""
+    """Dated rating copies folder: $CFB_ASOF_ARCHIVE, the project files archive, the packaged
+    app's own folder (%LOCALAPPDATA%\\cfb\\asof), else None (source checkout without one)."""
     env = _env_path("CFB_ASOF_ARCHIVE")
     if env is not None:
         return env
     snap = snapshot_dir()
     if snap is not None and (snap / "asof").exists():
         return snap / "asof"
+    if frozen():
+        return user_data_root() / "asof"
     return None
 
 
@@ -150,10 +163,36 @@ def secret(name: str) -> str | None:
     kr = _keyring()
     if kr is None:
         return None
-    try:
-        return kr.get_password(KEYRING_SERVICE, name) or None
-    except Exception:  # no usable keyring backend (headless Linux, CI)
+    services = [KEYRING_SERVICE]
+    if name in SHARED_SECRETS and KEYRING_SERVICE != _edition.EDITIONS[_edition.MAIN].keyring_service:
+        services.append(_edition.EDITIONS[_edition.MAIN].keyring_service)
+    for service in services:
+        try:
+            value = kr.get_password(service, name)
+        except Exception:  # no usable keyring backend (headless Linux, CI)
+            return None
+        if value:
+            return value
+    return None
+
+
+def secret_source(name: str) -> str | None:
+    """Where secret(name) comes from: "environment", "keyring", "main keyring" or None."""
+    env = SECRET_ENV.get(name)
+    if env and os.environ.get(env):
+        return "environment"
+    kr = _keyring()
+    if kr is None:
         return None
+    try:
+        if kr.get_password(KEYRING_SERVICE, name):
+            return "keyring"
+        if name in SHARED_SECRETS and KEYRING_SERVICE != _edition.EDITIONS[_edition.MAIN].keyring_service \
+                and kr.get_password(_edition.EDITIONS[_edition.MAIN].keyring_service, name):
+            return "main keyring"
+    except Exception:
+        return None
+    return None
 
 
 def set_secret(name: str, value: str) -> None:

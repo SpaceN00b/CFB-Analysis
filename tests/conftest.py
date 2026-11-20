@@ -23,6 +23,9 @@ def no_r2(monkeypatch, tmp_path_factory):
                  "CLOUDFLARE_API_TOKEN", "CFB_WAREHOUSE_LOCAL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("CFB_R2_CONFIG", str(tmp_path_factory.getbasetemp() / "no-r2.toml"))
+    # Engine status, logs and preferences of a test never land in the user's real folder.
+    monkeypatch.setenv("CFB_ENGINE_DIR", str(tmp_path_factory.mktemp("engine")))
+    monkeypatch.delenv("CFB_EDITION", raising=False)
 
 
 @pytest.fixture(scope="session")

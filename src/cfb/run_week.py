@@ -64,6 +64,8 @@ class RunResult:
     published: Path | None = None
     warehouse: object | None = None  # warehouse_sync.PublishResult
     warehouse_error: str | None = None
+    api_calls: int = 0  # CFBD requests of the refresh step
+    refresh_failures: list[str] = field(default_factory=list)
 
 
 def log(msg: str) -> None:
@@ -102,16 +104,20 @@ def ensure_data(data_dir: Path, snapshot: Path | None) -> bool:
     return True
 
 
-def refresh(data_dir: Path, season: int, archive: Path | None, now: datetime) -> list[str]:
-    """Pull the season from the API. Returns failure descriptions."""
+def refresh(data_dir: Path, season: int, archive: Path | None, now: datetime,
+            names: list[str] | None = None, stats: dict | None = None) -> list[str]:
+    """Pull the season from the API (every dataset, or `names`). Returns failure descriptions;
+    `stats` (a dict) receives the number of API calls under "api_calls"."""
     from .client import CFBDClient
     from .ingest import BY_NAME, run as ingest_run
     from .store import Store
 
     client = CFBDClient()
-    failures = ingest_run(client, Store(data_dir), [season], list(BY_NAME), force=True, now=now,
+    failures = ingest_run(client, Store(data_dir), [season], list(names or BY_NAME), force=True, now=now,
                           asof_archive=archive)
     log(f"refresh: {client.calls} API calls, {len(failures)} failures")
+    if stats is not None:
+        stats["api_calls"] = stats.get("api_calls", 0) + client.calls
     return failures
 
 
@@ -298,6 +304,8 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
         now_ts = now_ts.tz_localize("UTC")
     created = pd.Timestamp.now(tz="UTC")
     notes: list[str] = []
+    stats: dict = {}
+    failures: list[str] = []
 
     log("step 1/8 data")
     ensure_data(data_dir, snapshot)
@@ -326,7 +334,7 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
         if archive is None and not allow_no_archive:
             raise SystemExit("refresh needs the dated-copy archive (--asof-archive DIR), because CFBD's weekly "
                              "SP+/FPI/SRS/CORE values cannot be pulled again later; pass --allow-no-archive to skip it")
-        failures = refresh(data_dir, slate.season, archive, now_ts.to_pydatetime())
+        failures = refresh(data_dir, slate.season, archive, now_ts.to_pydatetime(), stats=stats)
         if failures:
             notes.append(f"Data refresh had {len(failures)} failed requests; the report uses what was pulled.")
         lines_asof = now_ts
@@ -371,7 +379,8 @@ def run(data_dir: str | Path = "data", config: ReportConfig | None = None, seaso
         log(f"  published to {published} and {Path(publish_dir) / 'latest'}")
     else:
         log("step 7/8 publish: skipped (no --publish)")
-    result = RunResult(slate, out, files, notes, published)
+    result = RunResult(slate, out, files, notes, published, api_calls=stats.get("api_calls", 0),
+                       refresh_failures=list(failures))
     # Automatic only for the weekly invocation (--publish), so ad-hoc and past-week runs never
     # replace what the PC syncs.
     to_r2 = publish_warehouse_to_r2
