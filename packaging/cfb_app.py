@@ -86,6 +86,8 @@ def selftest(system: bool = False) -> int:
     groups = discover_groups()
     cfg = load_config()
     app = launch.app_path()
+    from cfb.report.html import _template
+    template_ok = "__BUNDLE__" in _template()  # the engine writes reports with it
     ed = edition.current()
     print(f"edition={ed.name} groups={len(groups)} models={sorted(C.MODELS)} primary={cfg.primary} "
           f"config={settings.config_path()} app={app} build={update.current_build()} sync={sync_ok} "
@@ -93,6 +95,8 @@ def selftest(system: bool = False) -> int:
     problems = system_checks() if system else []
     for p in problems:
         print(f"selftest problem: {p}", file=sys.stderr)
+    if not template_ok:
+        problems.append("the dashboard template is missing")
     if not app.exists() or not groups or problems:
         print("selftest failed", file=sys.stderr)
         return 1

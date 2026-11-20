@@ -13,6 +13,8 @@ datas += copy_metadata("streamlit")            # streamlit reads its own version
 datas += [
     (str(ROOT / "src" / "cfb" / "ui" / "app.py"), "cfb/ui"),     # Streamlit runs a script path
     (str(ROOT / "dashboard" / "config.toml"), "dashboard"),     # run config fallback
+    # The report's dashboard template: the local engine renders reports (cfb.report.html).
+    (str(ROOT / "src" / "cfb" / "report" / "templates"), "cfb/report/templates"),
 ]
 
 hiddenimports = collect_submodules("streamlit") + collect_submodules("cfb")
