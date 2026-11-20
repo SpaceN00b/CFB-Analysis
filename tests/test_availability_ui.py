@@ -130,6 +130,97 @@ def test_players_table(pkg):
     assert df.set_index("athlete_id").loc[12, "setting"] == "Out"
 
 
+# ---- defense (PR 37) -------------------------------------------------------------------------
+
+# athlete -> (team, group, chart label or None, per-game involvement, per-game disruption points)
+DEFENDERS = {
+    101: (1, "DL", "DE", 3, 1.8), 102: (1, "DL", "DT", 3, 0.9), 103: (1, "DL", "DT", 3, 0.8),
+    104: (1, "DL", "DE", 3, 0.7), 105: (1, "DL", "DE", 1, 0.2),
+    106: (1, "LB", "LB", 7, 1.2), 107: (1, "LB", "LB", 6, 1.0), 108: (1, "LB", "LB", 5, 0.9),
+    109: (1, "LB", "LB", 1, 0.1),
+    **{a: (1, "DB", "CB", 4, 1.0) for a in range(110, 115)}, 115: (1, "DB", "CB", 1, 0.1),
+    **{a: (2, g, None, n, v) for a, (g, n, v) in {
+        201: ("DL", 3, 1.0), 202: ("DL", 3, 1.0), 203: ("DL", 3, 1.0), 204: ("DL", 3, 1.0), 205: ("DL", 1, 0.3),
+        206: ("LB", 6, 1.1), 207: ("LB", 6, 1.1), 208: ("LB", 6, 1.1), 209: ("LB", 1, 0.2),
+        210: ("DB", 5, 1.5), 211: ("DB", 4, 1.0), 212: ("DB", 4, 1.0), 213: ("DB", 4, 1.0), 214: ("DB", 4, 1.0),
+        215: ("DB", 1, 0.1)}.items()},
+}
+MU_D = {g: {"start": 1.0, "fill": 0.6} for g in ("DL", "LB", "DB")}
+K_D = {"DL": 6.0, "LB": 10.0, "DB": 24.0}
+
+
+@pytest.fixture()
+def pkg_def(pkg):
+    from cfb.lab import defense_impact as F
+
+    T = dict(pkg.tables)
+    rows = []
+    for season, gids in {S: [100, 101, 102, 103], S - 1: [50, 51, 52, 53]}.items():
+        for a, (t, g, _lab, n, v) in DEFENDERS.items():
+            for gid in gids:
+                rows.append((season, gid, t, a, g, float(n), float(v)))
+    dg_all = pd.DataFrame(rows, columns=["season", "game_id", "team_id", "athlete_id", "grp", "inv", "dv"])
+    dprev = F.prev_season(dg_all)
+    dprev = dprev[dprev["season"] == S]
+    dg = dg_all[dg_all["season"] == S]
+    def_chart = []
+    for a, (t, g, lab, *_r) in DEFENDERS.items():
+        if lab:
+            depth = 1 + sum(1 for b, (tb, _g, lb, *_x) in DEFENDERS.items() if tb == t and lb == lab and b < a)
+            role = {"DE": "EDGE", "DT": "IDL", "LB": "LB", "CB": "CB"}[lab]
+            def_chart.append((TEAMS[t], "defense", lab, float(depth), f"D{a}", float(a), role))
+    def_chart = pd.DataFrame(def_chart, columns=["team", "unit", "position", "depth", "player", "athlete_id", "role"])
+    # Alpha's best edge rusher is listed out
+    extra = pd.DataFrame([(WEEK_GAME, 1, 101, 0.998, "Out", True)], columns=T["listings"].columns)
+    T["listings"] = pd.concat([T["listings"], extra], ignore_index=True)
+    T["off_chart"] = T["listings"][["team_id", "athlete_id", "status"]]
+    pf = {(r.game_id, r.team_id, r.athlete_id): r.p for r in T["listings"].itertuples()}
+    repl = F.chart_defense(D.week_chart(def_chart, T["off_chart"], T["teams"]), T["teams"])
+    _, det = F.team_costs(dg, T["sched"], MU_D, K_D, pf, False, [S], record_all=True, chart_repl=repl, prev=dprev)
+    sc = det[det["game_id"] == WEEK_GAME].copy()
+    sc["charted_team"] = sc["team_id"].isin(set(repl))
+    sc["cost_chart"] = np.where(sc["charted_team"], sc["vor_own"], sc["vor_fill"]) * sc["p_out"]
+    T.update(dg=dg, dprev=dprev, def_chart=def_chart, def_scores=sc)
+    meta = dict(pkg.meta, **{"def": {"mu": MU_D, "K": K_D}})
+    return AV.WeekPackage.from_bytes(AV.WeekPackage(meta, T).to_bytes())
+
+
+def test_defense_recompute_matches_cloud(pkg_def):
+    m = AV.WeekModel(pkg_def)
+    assert m.has_def
+    cloud = pkg_def.tables["def_scores"].groupby("team_id")["cost_chart"].sum()
+    for t in TEAMS:
+        assert m.team(t, {}).cost_def == pytest.approx(float(cloud[t]), abs=1e-12)
+    a = m.team(1, {})
+    assert a.cost_def > 0 and a.cost == pytest.approx(a.cost_off + a.cost_def)
+    dl = a.starters.set_index("athlete_id").loc[101]
+    assert dl["grp"] == "DL" and int(dl["repl_id"]) == 105  # next man up at DE (104 is a healthy regular)
+    p = m.picks({})
+    assert p["p_mine"].iloc[0] == pytest.approx(p["p_dc"].iloc[0], abs=1e-12)
+    p_off = m.picks({}, defense=False)
+    assert p_off["p_dc"].iloc[0] == pytest.approx(float(pkg_def.tables["games"]["p_dc"].iloc[0]), abs=1e-12)
+    assert p["p_dc"].iloc[0] < p_off["p_dc"].iloc[0]  # home team's defense is short a starter
+
+
+def test_defense_overrides(pkg_def):
+    m = AV.WeekModel(pkg_def)
+    assert m.team(1, {101: "available"}).cost_def == pytest.approx(0.0, abs=1e-12)
+    # Beta has no defensive chart: its out DB costs his value over the league fill-in rate
+    b = m.team(2, {210: "out"})
+    row = b.starters.set_index("athlete_id").loc[210]
+    assert b.cost_def > 0 and row["repl_rate"] == pytest.approx(MU_D["DB"]["fill"])
+    assert m.team_cost(2, {210: "out"}, defense=False) == pytest.approx(m.team(2, {}).cost_off)
+
+
+def test_players_table_with_defense(pkg_def):
+    m = AV.WeekModel(pkg_def)
+    df = m.players(1, {})
+    assert list(df["grp"].unique()) == ["QB", "RB", "WR", "TE", "DL", "LB", "DB"]
+    r = df.set_index("athlete_id").loc[101]
+    assert r["listing"] == "Out" and bool(r["starter"]) and r["cost_now"] > 0 and r["chart"] == "DE 1"
+    assert set(m.players(2, {})["grp"]) >= {"DL", "LB", "DB"}
+
+
 def test_overrides_file_round_trip(tmp_path):
     o = AV.Overrides(tmp_path / "ov.json")
     o.set("2026_regular_12", 1, 11, "available", "Player 11")
@@ -216,7 +307,9 @@ def test_prefs_and_autostart(monkeypatch, tmp_path):
 st_testing = pytest.importorskip("streamlit.testing.v1")
 
 
-def test_players_page_renders(pkg, monkeypatch, tmp_path):
+@pytest.mark.parametrize("which", ["pkg", "pkg_def"])
+def test_players_page_renders(which, request, monkeypatch, tmp_path):
+    pkg = request.getfixturevalue(which)
     monkeypatch.setenv("CFB_AVAILABILITY_DIR", str(tmp_path / "av"))
     monkeypatch.setenv("CFB_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("CFB_WAREHOUSE_DIR", str(tmp_path / "warehouse"))

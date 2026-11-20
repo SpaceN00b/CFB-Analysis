@@ -13,6 +13,13 @@ linear predictor per game. On the PC, a team's cost is `depth_impact.team_costs`
 alone with the user's overrides applied to P(out) and to the chart, so with no overrides it gives
 the cloud's numbers (the export checks this for every team).
 
+Defense (PR 37, optional tables `DEF_TABLES` and meta["def"]): each defensive regular (DL 4, LB 3,
+DB 5 by involvement so far this season) who is out costs his disruption value (sacks, TFL, INT, PD,
+hurries in points) over the next man up on this week's defensive chart, or over the league fill-in
+rate for a team without a chart (`cfb.lab.defense_impact`). It tested at no measurable gain
+(docs/defense-impact.md), so the Picks tab can leave it out. A package without the defense tables
+gives the offense-only model.
+
 Bucket keys: extras/availability/LATEST.json -> {"key", "object", "sha256", "created_utc"};
 extras/availability/<key>.zip. Local: <user data>/availability/<key>.zip (downloaded copy) and
 <user data>/availability/overrides.json (the user's settings, per week).
@@ -42,6 +49,10 @@ TABLES = ("u", "prev", "sched", "lab", "rost", "chart", "listings", "off_chart",
 STATES = ("listing", "available", "out")
 GROUPS = ("QB", "RB", "WR", "TE")
 COST_COLS = ["qb_cost", "rb_cost", "wr_cost", "te_cost"]
+DEF_TABLES = ("dg", "dprev", "def_chart", "def_scores")
+DEF_GROUPS = ("DL", "LB", "DB")
+DEF_COST_CHART = ["dl_cost_own", "lb_cost_own", "db_cost_own"]   # charted team: next man up on the chart
+DEF_COST_FILL = ["dl_cost", "lb_cost", "db_cost"]                # no chart: league fill-in rate
 P4 = {"ACC", "Big Ten", "Big 12", "SEC"}
 
 
@@ -216,8 +227,10 @@ class Overrides:
 class TeamResult:
     team_id: int
     game_id: int | None
-    cost: float
+    cost: float             # offense + defense (offense only for a package without defense)
     starters: pd.DataFrame  # grp, athlete_id, player, p_out, touches_pg, rate, replacement, repl_rate, vor, cost
+    cost_off: float = 0.0
+    cost_def: float = 0.0
 
 
 class WeekModel:
@@ -252,6 +265,18 @@ class WeekModel:
             self.week_game[int(g.away_id)] = int(g.game_id)
         cs = T["cloud_scores"]
         self.cloud_cost = cs.groupby("team_id")["cost"].sum().to_dict() if "team_id" in cs else {}
+        self.has_def = all(t in T for t in DEF_TABLES) and "def" in pkg.meta
+        self.cloud_def: dict = {}
+        if self.has_def:
+            from cfb.lab import defense_impact as F
+
+            self.F = F
+            self.dg, self.dprev, self.def_chart = T["dg"], T["dprev"], T["def_chart"]
+            self.mu_d = pkg.meta["def"]["mu"]
+            self.K_d = pkg.meta["def"]["K"]
+            ds = T["def_scores"]
+            self.cloud_def = ds.groupby("team_id")["cost_chart"].sum().to_dict() if len(ds) else {}
+            self.def_charted = set(self.def_chart["team"])
         self._cache: dict = {}
 
     @property
@@ -294,31 +319,74 @@ class WeekModel:
         r = rows[rows["game_id"] == gid] if len(rows) else rows
         cost = float(r[COST_COLS].sum(axis=1).iloc[0]) if len(r) else 0.0
         st = det[det["game_id"] == gid].copy() if len(det) else det
+        cols = ["grp", "align", "athlete_id", "player", "p_out", "touches_pg", "rate", "repl_id", "replacement",
+                "repl_rate", "vor", "cost", "season_long"]
         if len(st):
             st["player"] = st["athlete_id"].map(self.names)
             st["replacement"] = st["repl_id"].map(self.names)
             st["cost"] = st["vor"] * st["p_out"]
-            st = st[["grp", "align", "athlete_id", "player", "p_out", "touches_pg", "rate", "repl_id", "replacement",
-                     "repl_rate", "vor", "cost", "season_long"]]
-        res = TeamResult(team_id, gid, cost, st)
+            st = st[cols]
+        cost_def, sd = (self._defense(team_id, gid, name, p_out, off) if self.has_def
+                        else (0.0, pd.DataFrame(columns=cols)))
+        if len(sd):
+            st = pd.concat([st, sd[cols]], ignore_index=True) if len(st) else sd[cols]
+        res = TeamResult(team_id, gid, cost + cost_def, st, cost_off=cost, cost_def=cost_def)
         if len(self._cache) > 512:
             self._cache.clear()
         self._cache[ck] = res
         return res
 
-    def team_cost(self, team_id: int, overrides: dict[int, str] | None = None) -> float:
+    def _defense(self, team_id: int, gid: int, name: str, p_out: dict, off: set) -> tuple[float, pd.DataFrame]:
+        """Defensive regulars of one team for the week game: cost and one row per regular."""
+        F, D = self.F, self.D
+        dch = self.def_chart[self.def_chart["team"] == name]
+        repl = None
+        if len(dch):
+            out_ids = pd.DataFrame({"team_id": team_id, "athlete_id": sorted(off), "status": "out"},
+                                   columns=["team_id", "athlete_id", "status"])
+            repl = F.chart_defense(D.week_chart(dch, out_ids, self.teams), self.teams) or None
+        sched = self.sched[self.sched["team_id"] == team_id]
+        rows, det = F.team_costs(self.dg, sched, self.mu_d, self.K_d, p_out, False, [self.season],
+                                 record_all=True, chart_repl=repl, prev=self.dprev)
+        r = rows[rows["game_id"] == gid] if len(rows) else rows
+        cc = DEF_COST_CHART if repl else DEF_COST_FILL
+        cost = float(r[cc].sum(axis=1).iloc[0]) if len(r) else 0.0
+        d = det[det["game_id"] == gid].copy() if len(det) else det
+        if len(d):
+            al = (dch.dropna(subset=["athlete_id"]).sort_values("depth")
+                  .assign(athlete_id=lambda x: x["athlete_id"].astype("int64")).drop_duplicates("athlete_id")
+                  .set_index("athlete_id")["role"]) if len(dch) else pd.Series(dtype=object)
+            d["align"] = d["athlete_id"].map(al)
+            d["player"] = d["athlete_id"].map(self.names)
+            d["replacement"] = d["repl_id"].map(self.names)
+            d["touches_pg"] = d["inv_pg"]
+            d["vor"] = d["vor_own"] if repl else d["vor_fill"]
+            if not repl:
+                d["repl_rate"] = [self.mu_d[g_]["fill"] for g_ in d["grp"]]
+            d["cost"] = d["vor"] * d["p_out"]
+            d["season_long"] = False
+        return cost, d
+
+    def team_cost(self, team_id: int, overrides: dict[int, str] | None = None, defense: bool = True) -> float:
+        """Injury cost of a team this week (points). defense=False leaves out the defensive term."""
         ov = {a: s for a, s in (overrides or {}).items() if s in ("available", "out")}
-        if not ov and int(team_id) in self.cloud_cost:
-            return float(self.cloud_cost[int(team_id)])
-        return self.team(team_id, ov).cost
+        t = int(team_id)
+        if not ov and t in self.cloud_cost and (not self.has_def or t in self.cloud_def or not defense):
+            return float(self.cloud_cost[t]) + (float(self.cloud_def.get(t, 0.0)) if defense else 0.0)
+        r = self.team(team_id, ov)
+        return r.cost_off + (r.cost_def if defense else 0.0)
 
     # the slate -----------------------------------------------------------------------------------
-    def picks(self, overrides: dict[int, dict[int, str]] | None = None) -> pd.DataFrame:
-        """One row per game: model_v2, the test model on the listings, and with the user's settings."""
+    def picks(self, overrides: dict[int, dict[int, str]] | None = None, defense: bool = True) -> pd.DataFrame:
+        """One row per game: model_v2, the test model on the listings ("p_dc"), and with the user's
+        settings ("p_mine"); defense=False leaves out the defensive term in both."""
         ov = overrides or {}
         g = self.games.copy()
-        g["home_cost_mine"] = [self.team_cost(h, ov.get(int(h))) for h in g["home_id"]]
-        g["away_cost_mine"] = [self.team_cost(a, ov.get(int(a))) for a in g["away_id"]]
+        hl = [self.team_cost(h, None, defense) for h in g["home_id"]]
+        al = [self.team_cost(a, None, defense) for a in g["away_id"]]
+        g["p_dc"] = _sigmoid(g["lin"] + g["calib_s"] * -(np.asarray(hl) - np.asarray(al)))
+        g["home_cost_mine"] = [self.team_cost(h, ov.get(int(h)), defense) for h in g["home_id"]]
+        g["away_cost_mine"] = [self.team_cost(a, ov.get(int(a)), defense) for a in g["away_id"]]
         g["adj_mine"] = -(g["home_cost_mine"] - g["away_cost_mine"])
         g["p_mine"] = _sigmoid(g["lin"] + g["calib_s"] * g["adj_mine"])
         g["changed"] = [bool(ov.get(int(h)) or ov.get(int(a))) for h, a in zip(g["home_id"], g["away_id"])]
@@ -330,7 +398,9 @@ class WeekModel:
 
     # one team's players --------------------------------------------------------------------------
     def players(self, team_id: int, overrides: dict[int, str] | None = None) -> pd.DataFrame:
-        """QB / RB / WR / TE of a team: season usage, chart spot, listing, your setting, cost if out."""
+        """QB / RB / WR / TE (and DL / LB / DB when the package has defense) of a team: season usage,
+        chart spot, listing, your setting, cost if out. Defense "touches" = involvement (tackles + PD
+        + hurries + INT)."""
         team_id = int(team_id)
         ov = {int(a): s for a, s in (overrides or {}).items()}
         u = self.u[self.u["team_id"] == team_id]
@@ -345,6 +415,17 @@ class WeekModel:
         spot = ch.drop_duplicates("athlete_id").set_index("athlete_id")
         listed = {a: v for (t, a), v in self.listing.items() if t == team_id}
         ids = set(use.index.astype("int64")) | set(spot.index) | set(listed) | set(ov)
+        dgrp, duse, dspot = {}, pd.DataFrame(), pd.DataFrame()
+        if self.has_def:
+            dt = self.dg[self.dg["team_id"] == team_id]
+            duse = dt.groupby("athlete_id").agg(games=("game_id", "nunique"), inv=("inv", "sum"))
+            dgrp = dt.drop_duplicates("athlete_id").set_index("athlete_id")["grp"].to_dict()
+            dc = self.def_chart[(self.def_chart["team"] == name) & self.def_chart["athlete_id"].notna()].copy()
+            dc["athlete_id"] = dc["athlete_id"].astype("int64")
+            dspot = dc.sort_values("depth").drop_duplicates("athlete_id").set_index("athlete_id")
+            for a, r_ in dspot.iterrows():
+                dgrp.setdefault(a, self.F.CHART_GRP.get(r_["role"]))
+            ids |= set(duse.index.astype("int64")) | set(dspot.index)
         res = self.team(team_id, ov)
         base = self.team(team_id, {})
         st = res.starters.set_index("athlete_id") if len(res.starters) else pd.DataFrame()
@@ -354,17 +435,28 @@ class WeekModel:
             grp = lab["grp"].get(a) if a in lab.index else None
             if grp is None and a in spot.index:
                 grp = self.D.ALIGN_GRP.get(spot.at[a, "role"])
-            if grp not in GROUPS:
+            is_def = grp not in GROUPS and dgrp.get(a) in DEF_GROUPS
+            if is_def:
+                grp = dgrp[a]
+            elif grp not in GROUPS:
                 continue
             p, status = listed.get(a, (0.0, None))
             s = st if a in st.index else st0
-            touch = {"QB": "drop", "RB": "carry", "WR": "tgt", "TE": "tgt"}[grp]
+            if is_def:
+                sp = dspot if a in dspot.index else None
+                chart_txt = f"{sp.at[a, 'position']} {int(sp.at[a, 'depth'])}" if sp is not None else None
+                games = int(duse["games"].get(a, 0)) if a in duse.index else 0
+                touches = int(round(duse["inv"].get(a, 0))) if a in duse.index else 0
+                slot = sp.at[a, "role"] if sp is not None else grp
+            else:
+                touch = {"QB": "drop", "RB": "carry", "WR": "tgt", "TE": "tgt"}[grp]
+                chart_txt = f"{spot.at[a, 'position']} {int(spot.at[a, 'depth'])}" if a in spot.index else None
+                games = int(use["games"].get(a, 0)) if a in use.index else 0
+                touches = int(use[touch].get(a, 0)) if a in use.index else 0
+                slot = lab["align"].get(a) if a in lab.index else None
             rows.append({
-                "athlete_id": int(a), "player": self.names.get(a, str(a)), "grp": grp,
-                "slot": lab["align"].get(a) if a in lab.index else None,
-                "chart": f"{spot.at[a, 'position']} {int(spot.at[a, 'depth'])}" if a in spot.index else None,
-                "games": int(use["games"].get(a, 0)) if a in use.index else 0,
-                "touches": int(use[touch].get(a, 0)) if a in use.index else 0,
+                "athlete_id": int(a), "player": self.names.get(a, str(a)), "grp": grp, "slot": slot,
+                "chart": chart_txt, "games": games, "touches": touches,
                 "listing": status or "", "p_listed": p,
                 "setting": {"available": "Available", "out": "Out"}.get(ov.get(a), "Listing"),
                 "starter": a in st.index or a in st0.index,
@@ -377,7 +469,7 @@ class WeekModel:
         df = pd.DataFrame(rows)
         if df.empty:
             return df
-        df["g_order"] = df["grp"].map({g: i for i, g in enumerate(GROUPS)})
+        df["g_order"] = df["grp"].map({g: i for i, g in enumerate(GROUPS + DEF_GROUPS)})
         return df.sort_values(["g_order", "starter", "touches"], ascending=[True, False, False]).drop(columns="g_order")
 
 
