@@ -14,6 +14,7 @@ engine's log files.
 """
 import multiprocessing
 import os
+import re
 import runpy
 import sys
 
@@ -54,6 +55,8 @@ def system_checks() -> list[str]:
             S.remove("weekly", name=name)
             if not got.get("installed") or got.get("days") != list(plan.days) or got.get("time") != plan.time:
                 problems.append(f"task read back {got!r}")
+            elif not re.match(r"^\d{4}-\d\d-\d\d \d\d:\d\d$", str(got.get("next"))):
+                problems.append(f"task next run time unreadable: {got.get('next')!r}")
             else:
                 print(f"schedule=ok ({got.get('command')} {got.get('arguments')}; next {got.get('next')})")
         except Exception as exc:

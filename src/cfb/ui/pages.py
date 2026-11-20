@@ -464,8 +464,8 @@ def _schedule_section() -> None:
             base = S.default_plan(kind)
             if cur.get("installed"):
                 st.write(f"On: {', '.join(cur.get('days') or [])} at {cur.get('time')}"
-                         f"{', wakes the PC' if cur.get('wake') else ''}. Next run {cur.get('next') or '?'}, "
-                         f"last run {cur.get('last') or 'never'} (result {cur.get('result')}).")
+                         f"{', wakes the PC' if cur.get('wake') else ''}. Next run {cur.get('next') or '?'}; "
+                         + (f"last run {cur['last']} ({cur.get('result')})." if cur.get("last") else "not run yet."))
             else:
                 st.write("Off.")
             c1, c2, c3 = st.columns(3)

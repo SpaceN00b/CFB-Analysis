@@ -319,6 +319,20 @@ def test_install_and_remove_call_schtasks(monkeypatch):
     assert S.remove("weekly") is True and seen[-1][1] == "/Delete"
 
 
+def test_task_result_codes_and_run_info(monkeypatch):
+    assert S.describe_result(0) == "success" and S.describe_result(267011) == "not run yet"
+    assert S.describe_result(-2147216609) == "already running" and S.describe_result(5) == "code 0x5"
+
+    class R:
+        returncode, stderr = 0, ""
+        stdout = '{"next":"2026-11-23 05:30","last":null,"result":267011}'
+
+    monkeypatch.setattr(S, "_run", lambda args, timeout=30: R())
+    assert S.run_info("x") == {"next": "2026-11-23 05:30", "last": None, "result": None}
+    R.stdout = '{"next":"2026-11-30 05:30","last":"2026-11-23 05:30","result":0}'
+    assert S.run_info("x")["result"] == "success"
+
+
 def test_engine_command_in_the_packaged_app(monkeypatch, tmp_path):
     from cfb.ui import engine_job
 

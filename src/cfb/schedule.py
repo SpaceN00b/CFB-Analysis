@@ -242,24 +242,35 @@ def query_xml(name: str) -> str | None:
     return r.stdout if r.returncode == 0 and r.stdout.strip() else None
 
 
+RESULTS = {0: "success", 1: "failed (exit 1)", 2: "done with a warning (exit 2)", 3: "skipped: another run was going (exit 3)",
+           0x41300: "ready", 0x41301: "running", 0x41303: "not run yet", 0x8004131F: "already running"}
+
+
+def describe_result(code) -> str | None:
+    if code is None:
+        return None
+    try:
+        code = int(code) & 0xFFFFFFFF
+    except (TypeError, ValueError):
+        return str(code)
+    return RESULTS.get(code, f"code 0x{code:X}")
+
+
 def run_info(name: str) -> dict:
-    """Next and last run time and the last result, from PowerShell (locale-independent)."""
+    """Next and last run time (PC local, "YYYY-MM-DD HH:MM"; last None if never) and the last
+    result, from PowerShell (locale-independent)."""
+    fmt = "ToString('yyyy-MM-dd HH:mm')"
     script = (f"$i = Get-ScheduledTaskInfo -TaskName '{name.replace(chr(39), chr(39) * 2)}' -ErrorAction Stop; "
-              "[pscustomobject]@{next=$i.NextRunTime; last=$i.LastRunTime; result=$i.LastTaskResult} "
-              "| ConvertTo-Json -Compress")
+              f"[pscustomobject]@{{next=$(if ($i.NextRunTime) {{ $i.NextRunTime.{fmt} }}); "
+              f"last=$(if ($i.LastRunTime -and $i.LastRunTime.Year -ge 2000) {{ $i.LastRunTime.{fmt} }}); "
+              "result=$i.LastTaskResult} | ConvertTo-Json -Compress")
     try:
         r = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], timeout=30)
         doc = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else {}
     except (OSError, ValueError, subprocess.TimeoutExpired, ScheduleError):
         return {}
-    out = {}
-    for k in ("next", "last"):
-        v = doc.get(k)
-        if isinstance(v, dict):  # Windows PowerShell 5 dates: {"value": "/Date(ms)/", "DateTime": "..."}
-            v = v.get("DateTime") or v.get("value")
-        out[k] = v
-    out["result"] = doc.get("result")
-    return out
+    return {"next": doc.get("next") or None, "last": doc.get("last") or None,
+            "result": describe_result(doc.get("result")) if doc.get("last") else None}
 
 
 def show(kind: str, *, name: str | None = None, info: bool = True) -> dict:
