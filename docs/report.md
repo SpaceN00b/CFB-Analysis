@@ -129,7 +129,7 @@ report, so they cannot change a prediction. `tests/test_rankings.py` checks this
 | Rank, Move | Model rank among FBS teams; places gained since the ranking one week earlier |
 | Rating, Off, Def | The source's rating. `power`: net points per game against an average FBS team on a neutral field, and its offense and defense parts |
 | SOR rank | Strength of record: wins minus the wins a 25th-best FBS team would expect against the same schedule and sites (same definition as `str_sor`) |
-| AP, Coaches, CFP | Poll rank, each from its own latest week. The committee ranking comes out on Tuesday evening, so a Monday run shows the previous week's |
+| AP, Coaches, CFP | Poll rank, each from its own latest week. The committee ranking comes out on Tuesday evening, so a Monday run shows the previous week's until the Tuesday poll update (below) |
 | Gap vs poll (dashboard) | Poll rank minus model rank; positive means the model rates the team higher |
 
 Teams in a poll's top 25 that the model ranks below 50 are listed after the top 50, so every
@@ -149,6 +149,21 @@ note to the report; it does not stop the run.
 
 The power rating is predictive (opponent-adjusted points margin); SOR is résumé-based (wins
 against the schedule played), which is closer to what polls describe.
+
+### Tuesday poll update
+
+`python -m cfb.poll_update --publish /mnt/project-files/reports --polls-archive /mnt/project-files/cfbd-data/polls`
+(scheduled task "Tuesday CFP poll pull", Tuesdays 11 PM ET in November and December, after the committee ranking
+is out). It downloads the published R2 warehouse version, pulls `/rankings` for the season
+(one API call), rebuilds this section of that version's report at the report's own cutoff,
+and publishes: R2 (the rankings table and the three report files upload; nothing else
+changes), the same refresh on `reports/<key>/` and `reports/latest/` in project files (each
+bundle patched in place), and a small dated tar of the season's rankings files under
+`cfbd-data/polls/` (`LATEST` names the newest; extract it over a restored snapshot). A week's
+polls count as known at the week start (`cfb.core.policies`), so the Tuesday ranking shows in
+that week's report. Predictions, features and the model ratings stay as the weekly run left
+them; the report gets a "Polls refreshed" note. When the pull has no AP, Coaches or CFP week
+the report lacks, nothing is written or published. About 2 minutes, mostly the R2 download.
 
 ## Bundle (`bundle.json`)
 
