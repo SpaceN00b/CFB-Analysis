@@ -392,4 +392,4 @@ def test_data_page_shows_the_last_run(env):
 def test_settings_page_has_backup_and_schedule(env):
     at = _page("page_settings")
     assert any("Back up to R2" in t.label for t in at.toggle)
-    assert [s.value for s in at.subheader][:3] == ["Keys", "Schedule", "Backup"]
+    assert [s.value for s in at.subheader] == ["Cloudflare connection", "Files", "Other keys", "Schedule", "Backup"]

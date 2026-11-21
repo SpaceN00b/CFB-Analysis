@@ -36,10 +36,15 @@ for tests and source checkouts.
 3. Start the app from the Start menu. A console window opens (closing it stops the UI, not an
    engine run) and the app opens in the browser at `http://127.0.0.1:8501` (another free port if
    that one is taken).
-4. Settings page: save the keys. They go to Windows Credential Manager.
-   - `cfbd_api_key`: the engine's CFBD pulls. "Test the CFBD key" shows the tier and the calls left.
-   - `r2_account_id`, `r2_access_key_id`, `r2_secret_access_key`: bootstrap and sync from R2.
-     Backing up after each run needs a key pair with Object Read & Write on the edition's bucket.
+4. Settings page, **Cloudflare connection**: paste the edition's R2 token's Access Key ID, Secret
+   Access Key and the account ID (or the S3 endpoint `https://<account id>.r2.cloudflarestorage.com`
+   shown with the token), then **Save and test**. This is needed once: the keys go to Windows
+   Credential Manager (or, if that does not keep them, `secrets.json` in the edition's
+   `%APPDATA%` folder, encrypted for the Windows user with DPAPI) and load on every launch, also
+   after installing a new build. A read-only token syncs; backing up after each engine run needs
+   Object Read & Write on the edition's bucket. Under **Other keys**, save `cfbd_api_key` for the
+   engine's CFBD pulls ("Test the CFBD key" shows the tier and the calls left). Pasted values are
+   cleaned: surrounding spaces and quotes and a leading `Bearer ` are dropped.
 5. Data page: **Bootstrap from the cloud** (first time), then **Run weekly update now**.
 6. Settings > Schedule: turn on the weekly update (and, if wanted, the daily light refresh).
 
@@ -93,6 +98,7 @@ or nothing to do, 1 failed, 2 done with a warning (failed requests, failed backu
 | Preferences | `%LOCALAPPDATA%\cfb\engine.json` (`{"backup": true}`) |
 | Reference report for `check` | `%LOCALAPPDATA%\cfb\reference\<key>\bundle.json` |
 | Cloud copy (Data > Sync now) | `%LOCALAPPDATA%\cfb\warehouse\` (`versions/<version>/`, `CURRENT`) |
+| Keys | Windows Credential Manager, service `cfb`; fallback `%APPDATA%\cfb\secrets.json` (DPAPI) |
 
 The pages read the engine's data dir or the synced cloud copy, whichever has the newer report
 week (the engine's on a tie).
@@ -125,7 +131,8 @@ about 220 a week plus about 7 a day, far under the 75,000 a month of Tier 3.
 - **Data**: local engine (bootstrap, Run weekly update now, Light refresh, Check against the
   cloud, Back up now, progress of a running job, the last run and recent runs) and the cloud copy
   (Sync now).
-- **Settings**: edition, paths, keys (Test the CFBD key), schedule, backup.
+- **Settings**: edition, Cloudflare connection (Save and test, Test connection, Forget), paths and key
+  store, other keys (Test the CFBD key), schedule, backup.
 
 ## From a source checkout
 
