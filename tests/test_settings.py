@@ -68,6 +68,7 @@ def test_frozen_app_uses_user_folders(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "user_data_root", lambda: tmp_path / "local" / "cfb")
     assert settings.data_dir() == tmp_path / "local" / "cfb" / "data"
     assert settings.warehouse_dir() == tmp_path / "local" / "cfb" / "warehouse"
+    assert settings.asof_archive() == tmp_path / "local" / "cfb" / "asof"  # the engine's dated copies
 
 
 def test_windows_folders(monkeypatch, tmp_path):
