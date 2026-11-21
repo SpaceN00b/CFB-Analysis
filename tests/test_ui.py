@@ -117,7 +117,8 @@ def test_week_page(data_dir):
     assert len(at.dataframe) == 1
 
 
-@pytest.mark.parametrize("name", ["page_teams", "page_performance", "page_data", "page_settings", "page_matchup"])
+@pytest.mark.parametrize("name", ["page_teams", "page_performance", "page_data", "page_settings", "page_matchup",
+                                  "page_results"])
 def test_other_pages_render(data_dir, name):
     run_page(name)
 
