@@ -13,6 +13,7 @@ st.set_page_config(page_title="CFB Predictor", page_icon="🏈", layout="wide")
 
 pages = [
     st.Page(P.page_week, title="This week", icon="📅", default=True),
+    st.Page(P.page_results, title="Picks vs results", icon="✅"),
     st.Page(P.page_matchup, title="Matchup", icon="⚔️"),
     st.Page(P.page_teams, title="Teams", icon="🏟️"),
     st.Page(P.page_performance, title="Performance", icon="📈"),

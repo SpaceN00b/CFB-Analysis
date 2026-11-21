@@ -112,6 +112,70 @@ def page_week():
             st.write(f"- {r['text']} (effect {r['effect']:+.3f})")
 
 
+@st.cache_data(show_spinner="Reading final scores")
+def _scores(folder: str, key: str, stamp: str) -> tuple[dict, str | None]:
+    """game_id -> (home, away) points: later reports' last-week scores, then the warehouse."""
+    from cfb.report import results as R
+
+    scores = R.results_from_bundles(R.later_bundles(Path(folder) / "reports", key))
+    note = None
+    try:
+        scores.update(R.results_from_outcomes(_warehouse(folder).outcomes()))
+    except Exception as exc:  # no core tables in this folder
+        note = f"Warehouse scores unavailable ({exc}); using later reports only."
+    return scores, note
+
+
+def page_results():
+    from cfb.report import results as R
+
+    bundle, key = current_bundle()
+    if bundle is None:
+        return no_data()
+    meta = bundle["meta"]
+    st.title(f"{meta.get('label', key)}: picks vs results")
+    ver = D.data_version(data_dir()) or {}
+    scores, note = _scores(str(data_dir()), key, str(ver.get("version", "")))
+    graded = R.grade(bundle, scores)
+    c = graded["counts"]
+    st.caption(f"Picks as published by the weekly run of {meta.get('created_local', '?')} (lines as of "
+               f"{meta.get('lines_asof_local', '?')}), not recomputed. Primary model: {graded['primary_label']}. "
+               f"Final scores: {c['final']} of {c['games']} games; {c['pending']} pending (scores arrive with the "
+               f"next database sync).")
+    if note:
+        st.info(note)
+    m = graded["models"].get(graded["primary"]) or {}
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Picks right (FBS vs FBS)", f"{graded['picks']['correct']}/{graded['picks']['n']}")
+    k2.metric("Log loss", "—" if m.get("log_loss") is None else f"{m['log_loss']:.4f}")
+    if graded["phase2"]:
+        for col, name, rec in ((k3, "Spread vs line (W-L-P)", graded["ats"]), (k4, "Total vs line (W-L-P)", graded["ou"])):
+            col.metric(name, f"{rec['won']}-{rec['lost']}-{rec['push']}" if rec else "—")
+    if graded["models"]:
+        st.dataframe(pd.DataFrame(graded["models"].values()).drop(columns=["primary"]), hide_index=True,
+                     column_config={"accuracy": PCT, "label": "Model", "n": "Games"})
+    df = R.frame(graded)
+    c1, c2 = st.columns(2)
+    if c1.toggle("FBS vs FBS only", value=True, key="res_fbs"):
+        df = df[df["fbs_vs_fbs"]]
+    if c2.toggle("Final scores only", key="res_final"):
+        df = df[df["final"]]
+    cols = ["kickoff", "away", "home", "pick", "p_pick", "market_p_pick", "score", "pick_correct", "log_loss"]
+    if graded["phase2"]:
+        cols += ["model_spread", "home_line", "ats_pick", "spread_line", "ats_result", "pred_total", "total_line", "ou_pick",
+                 "ou_result"]
+    num = st.column_config.NumberColumn
+    st.dataframe(df[cols], hide_index=True, width="stretch", column_config={
+        "kickoff": "Kickoff", "away": "Away", "home": "Home", "pick": "Pick",
+        "p_pick": num("Win prob", format="percent"), "market_p_pick": num("Market on pick", format="percent"),
+        "score": "Final", "pick_correct": "Pick right", "log_loss": num("Log loss", format="%.3f"),
+        "model_spread": num("Model spread", format="%+.1f", help="Home spread; negative = home favoured"),
+        "home_line": num("Home line at pick", format="%+.1f"),
+        "spread_line": num("Pick's line", format="%+.1f"), "ats_pick": "ATS pick", "ats_result": "ATS",
+        "pred_total": num("Model total", format="%.1f"), "total_line": num("Total line", format="%.1f"),
+        "ou_pick": "O/U pick", "ou_result": "O/U"})
+
+
 def page_matchup():
     from cfb.model import config as C
     from cfb.predict import matchup

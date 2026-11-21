@@ -16,6 +16,7 @@ python -m cfb.run_week --primary model_v1                # report on another mod
 ```bash
 python -m cfb.rankings --season 2026 --week 12           # model top 50 vs polls, Markdown to stdout
 python -m cfb.rankings --season 2026 --week 12 --source elo --top 25
+python -m cfb.results --season 2026 --week 12            # that week's published picks vs final scores
 ```
 
 `--now 2026-11-17T16:00:00Z` pretends the run happens at that time (picks the week).
@@ -156,6 +157,17 @@ Everything the report and dashboard show, as one JSON document (`bundle_version`
 `meta`, `models`, `games` (this week), `previous` (last week with results), `season`
 (own-game blocks, common-game blocks, weekly series, comparisons, calibration),
 `validation`, `teams`, `feature_catalog`, `rankings` (null when turned off). It is the record of what a run predicted.
+
+## Published picks vs results
+
+`python -m cfb.results --season S --week W` (and the app's **Picks vs results** page) grades a week's
+stored `bundle.json` against the final scores, so the picks are the ones the weekly run published before
+the games: win probability per model, the pick, the spread and total against the line at the run. Nothing
+is recomputed (`previous` in a later report is walk-forward and uses the closing line, so it can differ).
+Scores come from the warehouse's completed games, else later bundles' `previous`. Summary is FBS vs FBS:
+games, correct, accuracy, log loss, Brier per model, and spread/total won-lost-push. `--out FILE` writes
+the Markdown, `--json FILE` the graded rows; `--reports DIR` reads report folders elsewhere (for example
+`/mnt/project-files/reports`). Code: `cfb.report.results`.
 
 ## Spread and total (phase 2)
 

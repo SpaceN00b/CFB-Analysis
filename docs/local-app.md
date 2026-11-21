@@ -114,6 +114,10 @@ about 220 a week plus about 7 a day, far under the 75,000 a month of Tier 3.
 ## Pages
 
 - **This week**: picks, win probability, spread and total against the market, filters, top reasons.
+- **Picks vs results**: the chosen week's picks as its weekly run published them (bundle.json, never
+  recomputed) next to the final scores, with right/wrong, log loss, the spread and total against the line at
+  the run, and FBS vs FBS totals per model. Scores come from the synced database (later reports' last-week
+  sections fill in when its tables are missing); games without one show as pending until the next sync.
 - **Matchup**: any two teams at any date, with a QB-out override. It computes features live:
   about 15 s with model_v2, about 2 s with model_v1 (measured on the cloud container).
 - **Teams**: model top 50 against the AP, Coaches and CFP polls; each team's games.
