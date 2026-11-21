@@ -55,10 +55,18 @@ def sidebar_update():
     """A sidebar note when a newer build of the packaged app is on GitHub Releases, or a sync runs."""
     if sync_job.JOB.running:
         st.sidebar.caption("Database sync running… progress is on the Data page.")
+    elif not _connected():
+        st.sidebar.caption("Cloudflare not connected: save the R2 keys once on the Settings page.")
     rel = _update()
     if rel:
         link = rel.get("installer_url") or rel.get("url")
         st.sidebar.info(f"Update available: {rel['tag']}. [Download the installer]({link}), run it, then restart the app.")
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _connected() -> bool:
+    from cfb.ui import connection
+    return connection.status().configured
 
 
 def no_data():
@@ -435,8 +443,7 @@ def _sync_controls(warehouse_sync) -> None:
         if isinstance(exc, warehouse_sync.WarehouseError):
             st.error(f"Sync failed: {exc}")
         else:
-            st.error(f"Sync failed: {exc}. Check the R2 keys on the Settings page "
-                     "(r2_account_id, r2_access_key_id, r2_secret_access_key).")
+            st.error(f"Sync failed: {exc}. Check the Cloudflare connection on the Settings page.")
     if snap.lines and snap.state != "idle":
         st.code("\n".join(snap.lines[-12:]))
 
@@ -454,30 +461,78 @@ def _sync_progress() -> None:
 
 def page_settings():
     from cfb import edition
+    from cfb.ui import connection
 
     ed = edition.current()
     st.title("Settings")
     st.write(f"Edition: **{ed.app_name}** ({ed.name}). Keys, data and schedule are this edition's own.")
+    st.subheader("Cloudflare connection")
+    stat = connection.status()
+    if stat.configured:
+        st.success(f"Connected: the R2 keys are saved in {stat.where()} and load on every launch.")
+    else:
+        st.warning("Not connected. Save the R2 keys once; the app loads them on every launch after that.")
+    st.caption(f"Bucket {settings.secret('r2_bucket') or ed.bucket}. From the Cloudflare dashboard: R2 > Manage API "
+               "tokens > this edition's token (read-only syncs; Object Read & Write also lets the engine back up after "
+               "each run). Paste its Access Key ID, "
+               "Secret Access Key, and either the account ID or the S3 endpoint shown with it "
+               "(https://<account id>.r2.cloudflarestorage.com). Leave a field blank to keep the saved value. "
+               "Values are never shown.")
+    with st.form("r2_connect", clear_on_submit=True):
+        acc = st.text_input("Account ID or S3 endpoint", placeholder="saved" if stat.sources.get("r2_account_id") else "")
+        kid = st.text_input("Access Key ID", type="password",
+                            placeholder="saved" if stat.sources.get("r2_access_key_id") else "")
+        sec = st.text_input("Secret Access Key", type="password",
+                            placeholder="saved" if stat.sources.get("r2_secret_access_key") else "")
+        bucket = st.text_input("Bucket (optional)", placeholder=settings.secret("r2_bucket") or ed.bucket)
+        submitted = st.form_submit_button("Save and test", type="primary")
+    if submitted:
+        try:
+            saved = connection.save(acc, kid, sec, bucket)
+        except Exception as exc:
+            st.error(str(exc))
+        else:
+            _connected.clear()
+            if saved:
+                where = sorted({"Windows Credential Manager" if v == "keyring" else "the encrypted keys file"
+                                for v in saved.values()})
+                st.info(f"Saved {', '.join(saved)} to {', '.join(where)}.")
+            _check_connection(connection)
+    c1, c2 = st.columns(2)
+    if c1.button("Test connection", disabled=not stat.configured):
+        _check_connection(connection)
+    if c2.button("Forget the R2 keys", disabled=not any(stat.sources.values())):
+        connection.forget()
+        _connected.clear()
+        st.rerun()
+
+    st.subheader("Files")
     st.write(f"Config file: `{settings.config_path()}`")
     st.write(f"Engine data: `{settings.data_dir()}` · cloud copy: `{settings.warehouse_dir()}`")
-    st.subheader("Keys")
-    st.caption("Stored in Windows Credential Manager (service " + settings.KEYRING_SERVICE + "). Values are never "
-               "shown. The local engine needs cfbd_api_key to pull data. The R2 keys (r2_account_id, "
-               "r2_access_key_id, r2_secret_access_key) bootstrap and sync the database; backing up after each "
-               f"run needs a key pair with Object Read & Write. r2_bucket defaults to {ed.bucket}.")
-    rows = [{"key": n, "set": settings.secret(n) is not None, "from": settings.secret_source(n)}
-            for n in settings.SECRET_ENV]
-    st.dataframe(pd.DataFrame(rows), hide_index=True)
+    backend = settings.keyring_backend()
+    st.caption(f"Key store: {('Windows Credential Manager (' + backend + '), service ' + settings.KEYRING_SERVICE) if backend else 'no OS keyring'}; "
+               f"fallback file `{settings.secrets_file()}` (encrypted for this Windows user).")
+
+    st.subheader("Other keys")
+    st.caption("The local engine needs cfbd_api_key to pull data"
+               + ("" if ed.is_main else " (without its own, this edition uses the main edition's)")
+               + ". Sportradar is not used on the PC. Values are never shown.")
     with st.form("set_key", clear_on_submit=True):
         name = st.selectbox("Key", list(settings.SECRET_ENV))
         value = st.text_input("Value", type="password")
         if st.form_submit_button("Save") and value:
             try:
-                settings.set_secret(name, value.strip())
+                where = settings.set_secret(name, value.strip())
             except Exception as exc:
                 st.error(str(exc))
             else:
-                st.success(f"Saved {name}.")
+                _connected.clear()
+                st.success(f"Saved {name} ({'Windows Credential Manager' if where == 'keyring' else 'encrypted keys file'}).")
+    labels = {"keyring": "Credential Manager", "file": "keys file", "environment": "environment",
+              "main keyring": "main edition's Credential Manager", "main file": "main edition's keys file"}
+    rows = [{"key": n, "saved in": labels.get(settings.secret_source(n), "")} for n in settings.SECRET_ENV]
+    st.dataframe(pd.DataFrame(rows), hide_index=True)
+
     if st.button("Test the CFBD key", disabled=settings.secret("cfbd_api_key") is None):
         _test_cfbd()
     _schedule_section()
@@ -504,6 +559,16 @@ def _test_cfbd() -> None:
         return st.error("CFBD answered without account details: check the key.")
     st.success(f"CFBD key works: tier {info.get('tierName')}, {info.get('remainingCalls')} of "
                f"{info.get('monthlyLimit')} calls left this month (resets {info.get('resetAt')}).")
+
+
+def _check_connection(connection) -> None:
+    with st.spinner("Checking the bucket…"):
+        try:
+            version = connection.check()
+        except Exception as exc:
+            st.error(f"Connection failed: {exc}")
+        else:
+            st.success(f"Connection works. Cloud database version: {version}.")
 
 
 def _schedule_section() -> None:

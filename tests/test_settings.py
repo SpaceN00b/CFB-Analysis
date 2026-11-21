@@ -21,6 +21,7 @@ def clean_env(monkeypatch, tmp_path):
     # No real project files mount and no real keyring in these tests.
     monkeypatch.setenv("CFB_PROJECT_FILES", str(tmp_path / "no-mount"))
     monkeypatch.setattr(settings, "_keyring", lambda: None)
+    monkeypatch.setenv("CFB_SECRETS_FILE", str(tmp_path / "secrets.json"))
     monkeypatch.delattr(sys, "frozen", raising=False)
 
 
@@ -133,11 +134,111 @@ def test_secret_survives_broken_keyring(monkeypatch):
     assert settings.secret("r2_bucket") is None
 
 
-def test_set_secret_needs_keyring_and_known_name():
-    with pytest.raises(RuntimeError):
-        settings.set_secret("cfbd_api_key", "x")
+def test_set_secret_without_keyring_uses_the_secrets_file():
+    assert settings.set_secret("r2_access_key_id", "plain-key-value") == "file"
+    assert settings.secret("r2_access_key_id") == "plain-key-value"
+    assert settings.secret_source("r2_access_key_id") == "file"
+    raw = settings.secrets_file().read_text(encoding="utf-8")
+    if sys.platform == "win32":
+        assert "plain-key-value" not in raw  # DPAPI-encrypted for this Windows user
+    settings.delete_secret("r2_access_key_id")
+    assert settings.secret("r2_access_key_id") is None
     with pytest.raises(KeyError):
         settings.set_secret("not_a_secret", "x")
+
+
+class ForgetfulKeyring(FakeKeyring):
+    """Accepts a value but does not keep it (a backend that cannot persist)."""
+
+    def set_password(self, service, name, value):
+        pass
+
+
+def test_set_secret_falls_back_when_keyring_does_not_keep_it(monkeypatch):
+    monkeypatch.setattr(settings, "_keyring", lambda: ForgetfulKeyring())
+    assert settings.set_secret("r2_secret_access_key", "s3cr3t") == "file"
+    assert settings.secret("r2_secret_access_key") == "s3cr3t"
+
+
+def test_set_secret_in_keyring_removes_the_file_copy(monkeypatch):
+    settings.set_secret("r2_bucket", "old")            # no keyring yet: file
+    kr = FakeKeyring()
+    monkeypatch.setattr(settings, "_keyring", lambda: kr)
+    assert settings.set_secret("r2_bucket", "new") == "keyring"
+    assert settings.secret_source("r2_bucket") == "keyring"
+    assert "r2_bucket" not in settings.secrets_file().read_text(encoding="utf-8")
+    assert settings.secret("r2_bucket") == "new"
+
+
+def test_experimental_keeps_its_own_files_and_reads_only_the_cfbd_key_from_main(monkeypatch, tmp_path):
+    """Experimental: secrets file and app prefs sit under cfb-exp; from main's secrets
+    file it reads the CFBD key only, never R2 keys, and never writes there."""
+    import json
+
+    from cfb.ui import connection
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    for v in ("CFB_SECRETS_FILE", "CFB_APP_PREFS", "CFBD_API_KEY"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setattr(settings, "APP", "cfb-exp")
+    monkeypatch.setattr(settings, "KEYRING_SERVICE", "cfb-exp")
+    main_file = tmp_path / "cfg" / "cfb" / "secrets.json"
+    main_file.parent.mkdir(parents=True)
+    main_file.write_text(json.dumps({"cfbd_api_key": {"plain": "MAIN-CFBD"},
+                                     "r2_access_key_id": {"plain": "MAIN-R2"}}))
+    assert settings.secrets_file() == tmp_path / "cfg" / "cfb-exp" / "secrets.json"
+    assert connection.prefs_path() == tmp_path / "cfg" / "cfb-exp" / "app.json"
+    assert settings.main_secrets_file() == main_file
+    assert settings.secret("cfbd_api_key") == "MAIN-CFBD"
+    assert settings.secret_source("cfbd_api_key") == "main file"
+    assert settings.secret("r2_access_key_id") is None
+    assert settings.set_secret("r2_access_key_id", "EXP-R2") == "file"
+    assert settings.secret("r2_access_key_id") == "EXP-R2"
+    assert json.loads(main_file.read_text())["r2_access_key_id"] == {"plain": "MAIN-R2"}  # main untouched
+    settings.set_secret("cfbd_api_key", "EXP-CFBD")
+    assert settings.secret("cfbd_api_key") == "EXP-CFBD" and settings.secret_source("cfbd_api_key") == "file"
+
+
+def test_keyring_backend_names(monkeypatch):
+    assert settings.keyring_backend() is None
+    fail = type("Keyring", (), {"__module__": "keyring.backends.fail"})()
+    monkeypatch.setattr(settings, "_keyring", lambda: types.SimpleNamespace(get_keyring=lambda: fail))
+    assert settings.keyring_backend() is None
+    win = type("WinVaultKeyring", (), {"__module__": "keyring.backends.Windows"})()
+    monkeypatch.setattr(settings, "_keyring", lambda: types.SimpleNamespace(get_keyring=lambda: win))
+    assert settings.keyring_backend() == "Windows.WinVaultKeyring"
+
+
+@pytest.mark.parametrize("name, pasted, kept", [
+    ("cfbd_api_key", "  Bearer abc123XYZ\n", "abc123XYZ"),
+    ("cfbd_api_key", "bearer abc123XYZ", "abc123XYZ"),
+    ("cfbd_api_key", '"abc123XYZ"', "abc123XYZ"),
+    ("cloudflare_api_token", "Bearer tok", "tok"),
+    ("r2_access_key_id", " 'AKID' ", "AKID"),
+    ("r2_secret_access_key", "Bearer is-not-stripped-here", "Bearer is-not-stripped-here"),
+    ("r2_account_id", "https://0123456789ABCDEF0123456789abcdef.r2.cloudflarestorage.com",
+     "0123456789abcdef0123456789abcdef"),
+    ("r2_account_id", "0123456789abcdef0123456789abcdef", "0123456789abcdef0123456789abcdef"),
+])
+def test_pasted_values_are_cleaned_on_save(name, pasted, kept):
+    settings.set_secret(name, pasted)
+    assert settings.secret(name) == kept
+    assert settings.secret_source(name) == "file"
+
+
+def test_values_saved_before_cleaning_are_cleaned_on_read(monkeypatch):
+    kr = FakeKeyring()
+    kr.set_password(settings.KEYRING_SERVICE, "cfbd_api_key", "Bearer old-style ")
+    monkeypatch.setattr(settings, "_keyring", lambda: kr)
+    assert settings.secret("cfbd_api_key") == "old-style"
+    assert CFBDClient().api_key == "old-style"
+
+
+def test_set_secret_refuses_an_empty_value():
+    with pytest.raises(ValueError):
+        settings.set_secret("cfbd_api_key", ' "" ')
 
 
 def test_client_key_resolution(monkeypatch):
